@@ -1,0 +1,89 @@
+{
+  "slug": "sri-dasam-granth-sahib-complete",
+  "name": "ਸੰਪੂਰਨ ਸ੍ਰੀ ਦਸਮ ਗ੍ਰੰਥ ਸਾਹਿਬ · Complete Sri Dasam Granth Sahib",
+  "granthSlug": "dasam",
+  "state": "PROVISIONAL",
+  "source": {
+    "name": "Shabad OS database",
+    "license": "Gurbani data: Public Domain Mark 1.0 (per repository README); package code: MIT",
+    "attribution": "Text adopted from the Shabad OS database (shabados.com), which identifies Gurbani as public domain; physical editions as cited per line.",
+    "url": "https://github.com/shabados/database"
+  },
+  "history": [
+    {
+      "date": "2026-09-17",
+      "versionNo": 1,
+      "note": "Imported complete text (67,758 lines) from the Shabad OS database (release 4.8.7), via the gurmukhi-utils converter."
+    }
+  ],
+  "sections": [
+    {
+      "t": "RAAG",
+      "name": "ਜਾਪੁ · Jaap"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਅਕਾਲ ਉਸਤਤ · Akal Ustat"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਬਚਿਤ੍ਰ ਨਾਟਕ · Bachittar Natak"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਚੰਡੀ ਚਰਿਤ੍ਰ ਉਕਤਿ ਬਿਲਾਸ · Chandi Charittar Ukat Bilas"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਚੰਡੀ ਚਰਿਤ੍ਰ · Chandi Charittar"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਵਾਰ ਸ੍ਰੀ ਭਗਉਤੀ ਜੀ ਕੀ · Vaar Sri Bhagauti Ji Ki"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਗਿਆਨ ਪ੍ਰਬੋਧ · Gyan Prabodh"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਚਉਬੀਸ ਅਵਤਾਰ · Chaubees Avtaar"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਬ੍ਰਹਮਾ ਅਵਤਾਰ · Brahma Avtaar"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਰੁਦ੍ਰ ਅਵਤਾਰ · Rudra Avtaar"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਸ਼ਬਦ ਹਜ਼ਾਰੇ ਪਾਃ ੧੦ · Shabad Hazare"
+    },
+    {
+      "t": "RAAG",
+      "name": "੩੩ ਸਵੈਯੇ · 33 Svaiyay"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਖਾਲਸਾ ਮਹਿਮਾ · Khalsa Mahima"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਸ਼ਸਤ੍ਰ ਨਾਮ ਮਾਲਾ · Shastar Naam Mala"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਚਰਿਤ੍ਰੋਪਖ੍ਯਾਨ · Charitropakhyan"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਜ਼ਫ਼ਰਨਾਮਹ · Zafarnama"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਹਿਕਾਯਤ · Hikayat"
+    }
+  ]
+}

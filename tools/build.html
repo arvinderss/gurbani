@@ -123,7 +123,13 @@
         pickStatus.textContent = `Reading ${files.length} files…`;
 
         const problems = [];
-        const contentFolders = new Map(); // granthSlug -> [bani objects]
+        // A Bani is either content/<granth>/<slug>.json (one file), or
+        // content/<granth>/<slug>/ (a directory: _meta.json plus any
+        // number of chunk files, e.g. ang-0001.json, each {"lines":[...]}
+        // concatenated in filename order). The directory form is for very
+        // large Banian (a complete Granth) so no single file balloons past
+        // what's reasonable to review a diff of.
+        const composites = new Map(); // "granth/slug" -> { meta, chunks: [{name, lines}] }
 
         for (const file of files) {
           const rel = relPath(file);
@@ -133,13 +139,19 @@
             } catch (e) {
               problems.push('content/manifest.json: ' + e.message);
             }
-          } else if (rel.startsWith('content/') && rel.endsWith('.json')) {
-            const m = rel.match(/^content\/([^/]+)\/([^/]+)\.json$/);
-            if (!m) {
-              problems.push(rel + ': unexpected location for a content file.');
-              continue;
-            }
-            const [, granthSlug, slugFromFile] = m;
+            continue;
+          }
+          if (!rel.startsWith('content/') || !rel.endsWith('.json')) {
+            if (rel === 'app/head.html') appFiles.head = await readText(file);
+            else if (rel === 'app/styles.css') appFiles.styles = await readText(file);
+            else if (rel === 'app/body.html') appFiles.body = await readText(file);
+            else if (rel === 'app/app.js') appFiles.js = await readText(file);
+            continue;
+          }
+          const parts = rel.split('/'); // ["content", granth, ...]
+          if (parts.length === 3) {
+            const [, granthSlug, fileName] = parts;
+            const slugFromFile = fileName.slice(0, -5);
             let bani;
             try {
               bani = JSON.parse(await readText(file));
@@ -153,10 +165,36 @@
             const fileProblems = PothiBuild.validateBani(bani, granthSlug);
             problems.push(...fileProblems);
             baniBySlug.set(bani.slug, bani);
-          } else if (rel === 'app/head.html') appFiles.head = await readText(file);
-          else if (rel === 'app/styles.css') appFiles.styles = await readText(file);
-          else if (rel === 'app/body.html') appFiles.body = await readText(file);
-          else if (rel === 'app/app.js') appFiles.js = await readText(file);
+          } else if (parts.length === 4) {
+            const [, granthSlug, slug, fileName] = parts;
+            const key = granthSlug + '/' + slug;
+            if (!composites.has(key)) composites.set(key, { granthSlug, meta: null, chunks: [] });
+            const entry = composites.get(key);
+            let json;
+            try {
+              json = JSON.parse(await readText(file));
+            } catch (e) {
+              problems.push(rel + ': invalid JSON — ' + e.message);
+              continue;
+            }
+            if (fileName === '_meta.json') entry.meta = json;
+            else entry.chunks.push({ name: fileName, lines: json.lines || [] });
+          } else {
+            problems.push(rel + ': unexpected location for a content file.');
+          }
+        }
+
+        for (const [key, entry] of composites) {
+          if (!entry.meta) {
+            problems.push(`${key}/: missing _meta.json.`);
+            continue;
+          }
+          entry.chunks.sort((a, b) => (a.name < b.name ? -1 : 1));
+          const lines = entry.chunks.flatMap((c) => c.lines);
+          const bani = { ...entry.meta, lines };
+          const fileProblems = PothiBuild.validateBani(bani, entry.granthSlug);
+          problems.push(...fileProblems);
+          baniBySlug.set(bani.slug, bani);
         }
 
         if (!manifest) problems.unshift('content/manifest.json was not found in the selected folder.');
@@ -200,8 +238,8 @@
           data,
         });
         const totalLines = data.banis.reduce((n, b) => n + b.lines.length, 0);
-        buildResult.textContent = `Built: ${data.banis.length} Banian, ${totalLines} lines, ${(html.length / 1024 / 1024).toFixed(2)} MB.`;
         const blob = new Blob([html], { type: 'text/html' });
+        buildResult.textContent = `Built: ${data.banis.length} Banian, ${totalLines} lines, ${(blob.size / 1024 / 1024).toFixed(2)} MB.`;
         const url = URL.createObjectURL(blob);
         downloadLink.href = url;
         downloadLink.hidden = false;

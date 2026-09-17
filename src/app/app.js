@@ -66,6 +66,27 @@ function announce(msg) {
   });
 }
 
+/** Coarse relative time for the Continue Reading list ("3 days ago"). */
+function timeAgo(ts) {
+  const s = Math.max(0, (Date.now() - ts) / 1000);
+  const steps = [
+    [60, 'just now', null],
+    [3600, 'minute', 60],
+    [86400, 'hour', 3600],
+    [2592000, 'day', 86400],
+    [31536000, 'month', 2592000],
+    [Infinity, 'year', 31536000],
+  ];
+  for (const [limit, unit, div] of steps) {
+    if (s < limit) {
+      if (!div) return unit;
+      const n = Math.floor(s / div);
+      return n + ' ' + unit + (n === 1 ? '' : 's') + ' ago';
+    }
+  }
+  return 'a while ago';
+}
+
 const COLOR_VARS = [
   ['gurbani', 'Gurbani'],
   ['title', 'Titles'],
@@ -193,28 +214,49 @@ function renderHome() {
   });
   const holder = el('div');
   view.append(q, holder);
-  const resume = Object.entries(S.positions)
-    .filter(([k]) => BY_SLUG.has(k))
-    .sort((a, b) => b[1].at - a[1].at)[0];
-  if (resume)
-    view.prepend(
-      el('div', { class: 'card row' }, [
-        el('span', { text: 'Continue ' + BY_SLUG.get(resume[0]).name }),
-        el('div', { class: 'grow' }),
-        el('button', {
-          class: 'primary',
-          text: 'Resume',
-          onclick: () =>
-            go({
-              tab: 'read',
-              slugs: [resume[0]],
-              key: resume[0],
-              title: BY_SLUG.get(resume[0]).name,
-            }),
-        }),
-      ]),
-    );
+  renderContinueReading();
   draw('');
+  function renderContinueReading() {
+    const inProgress = Object.entries(S.positions)
+      .filter(([k]) => BY_SLUG.has(k))
+      .sort((a, b) => b[1].at - a[1].at);
+    const old = view.querySelector('.continue-reading');
+    if (old) old.remove();
+    if (!inProgress.length) return;
+    const section = el('section', { class: 'continue-reading' }, [
+      el('h2', { class: 'section', text: 'Continue Reading' }),
+      el(
+        'div',
+        { class: 'card' },
+        inProgress.map(([slug, pos]) => {
+          const bani = BY_SLUG.get(slug);
+          const pct = Math.round((pos.i / Math.max(1, bani.lines.length - 1)) * 100);
+          return el('div', { class: 'row', style: 'margin: 0.5rem 0' }, [
+            el(
+              'button',
+              {
+                class: 'quiet',
+                style: 'text-align:left;flex:1',
+                onclick: () => go({ tab: 'read', slugs: [slug], key: slug, title: bani.name }),
+              },
+              [el('div', { text: bani.name }), el('div', { class: 'small muted', text: pct + '% · ' + timeAgo(pos.at) })],
+            ),
+            el('button', {
+              class: 'quiet hit',
+              text: '✕',
+              'aria-label': 'Remove ' + bani.name + ' from Continue Reading',
+              onclick: () => {
+                delete S.positions[slug];
+                save();
+                renderContinueReading();
+              },
+            }),
+          ]);
+        }),
+      ),
+    ]);
+    view.prepend(section);
+  }
   function draw(filter) {
     holder.replaceChildren();
     const favs = BANIS.filter((b) => S.favourites.includes(b.slug));
@@ -938,15 +980,9 @@ function renderRead() {
   for (const b of list) {
     if (list.length > 1 && !S.continuous) wrap.append(el('h2', { class: 'bani-title', text: b.name }));
     if (!S.continuous) {
-      wrap.append(
-        el('p', {
-          class: 'prov',
-          text:
-            (b.state === 'PROVISIONAL' ? 'Provisional text' : 'Reviewed text') +
-            (b.source.name ? ' · adopted from ' + b.source.name : '') +
-            (b.source.attribution ? ' · ' + b.source.attribution : ''),
-        }),
-      );
+      // Provisional/attribution status intentionally isn't shown here -
+      // it's identical across every Bani and belongs in Settings -> About,
+      // not repeated above the text on every single read.
       if (b.reviewNotes && b.reviewNotes.length) {
         const details = document.createElement('details');
         details.className = 'review-notes';
@@ -962,13 +998,18 @@ function renderRead() {
     let lastSection = -1;
     let para = null;
     b.lines.forEach((line, i) => {
-      if (S.showTitles && !S.continuous && line.s !== lastSection && b.sections.length > 1) {
-        const sec = b.sections[line.s];
-        const label = ['BODY', 'BANI_SECTION'].includes(sec.t) ? 'Section ' + (sec.l ?? line.s + 1) : sec.t.toLowerCase() + (sec.l ? ' ' + sec.l : '');
-        wrap.append(el('h2', { class: 'sec', text: label }));
+      const s = line.s ?? 0; // omitted in storage when it's the Bani's first (0th) section
+      if (S.showTitles && !S.continuous && s !== lastSection && b.sections.length > 1) {
+        const sec = b.sections[s];
+        // A generic BODY/BANI_SECTION entry with no real name is just an
+        // internal structural break (a pauri/verse-group boundary) - it
+        // carries no information worth a heading, so show nothing rather
+        // than a bare "Section 7".
+        const label = sec.name ?? (['BODY', 'BANI_SECTION'].includes(sec.t) ? null : sec.t.toLowerCase() + (sec.l ? ' ' + sec.l : ''));
+        if (label) wrap.append(el('h2', { class: 'sec', text: label }));
         para = null;
       }
-      lastSection = line.s;
+      lastSection = s;
       if (S.paragraph && !para) {
         para = el('div', { class: 'sec-body' });
         wrap.append(para);

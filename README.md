@@ -1,8 +1,9 @@
 # Pothi Sahib
 
-An offline Gurbani reader for Nitnem and Sri Dasam Granth Sahib. The whole
-app — code, styling and all 29 Banian (9,419 lines) — is one HTML file with
-no dependencies, no network calls, and nothing to install. It works
+An offline Gurbani reader. The whole app — code, styling, and all 31
+Banian (137,732 lines, including the complete Sri Guru Granth Sahib Ji and
+complete Sri Dasam Granth Sahib) — is one ~22MB HTML file with no
+dependencies, no network calls, and nothing to install. It works
 identically on Android, iOS, Windows, macOS and Linux: just open it in a
 browser.
 
@@ -91,8 +92,10 @@ dist/pothi-sahib.html         ← open this to read. Generated — don't hand-ed
 src/
   content/
     manifest.json             ← which granths exist, their display order, the Nitnem list
-    dasam/*.json               ← one file per Bani in Sri Dasam Granth Sahib
-    sggs/*.json                 ← one file per Bani in Sri Guru Granth Sahib Ji
+    dasam/*.json               ← one file per (curated) Bani in Sri Dasam Granth Sahib
+    dasam/complete/             ← the complete Dasam Granth, chunked one file per page — see below
+    sggs/*.json                 ← one file per (curated) Bani in Sri Guru Granth Sahib Ji
+    sggs/complete/               ← the complete SGGS, chunked one file per Ang — see below
     panthic-compilations/*.json ← Ardaas, Rehras recensions, Aartis, etc.
   app/
     head.html, body.html      ← the HTML shell
@@ -103,6 +106,24 @@ tools/
   build-node.js                ← optional Node.js shortcut for the same build
   editor.html                  ← the content editor (no install needed)
 ```
+
+### Large Banis: chunked (composite) content files
+
+A Bani is normally one file: `content/<granth>/<slug>.json`. For a Bani too
+large to review sensibly as one file — the complete SGGS is 60,555 lines —
+it's instead a **directory**: `content/<granth>/<slug>/`, containing:
+
+- `_meta.json` — the Bani's own fields (`slug`, `name`, `state`, `source`,
+  `history`, `sections`) exactly like a normal content file, just without
+  `lines`.
+- `ang-0001.json`, `ang-0002.json`, … — one file per Ang/page, each just
+  `{"page": N, "lines": [...]}`.
+
+At build time these are concatenated, in filename order, into that Bani's
+`lines` array — the app never knows the difference. A correction to Ang 253
+is a five-line diff in one small file, not a search through a 60,000-line
+document. `tools/build.html`, `tools/build-node.js` and `tools/editor.html`
+all read and write this form the same as a single-file Bani.
 
 ### Content file schema
 

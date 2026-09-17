@@ -135,7 +135,7 @@
     </div>
 
     <div id="editor" hidden>
-      <div class="card meta">
+      <div class="card meta" id="metaCard">
         <label>Name (as shown in the app)</label>
         <input id="fName" />
         <label>State</label>
@@ -145,6 +145,7 @@
         </select>
         <p class="muted" id="fSlugGranth"></p>
       </div>
+      <p class="card muted" id="chunkNotice" hidden></p>
 
       <div class="card">
         <strong>Lines</strong>
@@ -156,7 +157,7 @@
         <button id="addLine">+ Add line at end</button>
       </div>
 
-      <div class="card">
+      <div class="card" id="reviewCard">
         <strong>Review notes</strong>
         <p class="muted">Known issues for this Bani, shown to readers under a "⚠ known review notes" toggle.</p>
         <div id="reviewNotes" class="notes-list"></div>
@@ -165,8 +166,10 @@
 
       <div class="card">
         <strong>Save</strong>
-        <label class="muted">What changed and why (this becomes a Changelog entry)</label>
-        <textarea id="changeNote" rows="2" placeholder="e.g. Fixed a missing matra in line 42 per the Gurdwara Gyan da Sagar edition"></textarea>
+        <div id="changeNoteRow">
+          <label class="muted">What changed and why (this becomes a Changelog entry)</label>
+          <textarea id="changeNote" rows="2" placeholder="e.g. Fixed a missing matra in line 42 per the Gurdwara Gyan da Sagar edition"></textarea>
+        </div>
         <div class="row" style="margin-top: 0.5rem">
           <button id="saveBtn" class="primary">Save corrected JSON</button>
           <a id="downloadLink" hidden></a>
@@ -179,12 +182,17 @@
       'use strict';
       let bani = null;
       let fileName = '';
+      let isChunk = false; // editing one ang-NNNN.json chunk of a large (composite) Bani, not a full Bani file
 
       const picker = document.getElementById('picker');
       const editor = document.getElementById('editor');
       const fName = document.getElementById('fName');
       const fState = document.getElementById('fState');
       const fSlugGranth = document.getElementById('fSlugGranth');
+      const metaCard = document.getElementById('metaCard');
+      const chunkNotice = document.getElementById('chunkNotice');
+      const reviewCard = document.getElementById('reviewCard');
+      const changeNoteRow = document.getElementById('changeNoteRow');
       const linesEl = document.getElementById('lines');
       const reviewNotesEl = document.getElementById('reviewNotes');
       const changeNote = document.getElementById('changeNote');
@@ -194,12 +202,25 @@
         if (!file) return;
         fileName = file.name;
         bani = JSON.parse(await file.text());
+        // A chunk file (part of a large composite Bani, see README "Large
+        // Banis") has {page, lines} and none of a full Bani's own fields -
+        // editing it means just the lines; the Bani-level fields (name,
+        // state, history, reviewNotes) live in that Bani's _meta.json.
+        isChunk = !('slug' in bani) && 'page' in bani;
         bani.lines = bani.lines || [];
         bani.reviewNotes = bani.reviewNotes || [];
-        bani.history = bani.history || [];
-        fName.value = bani.name || '';
-        fState.value = bani.state || 'PROVISIONAL';
-        fSlugGranth.textContent = `slug: ${bani.slug}  ·  granth: ${bani.granthSlug}  ·  ${bani.lines.length} lines`;
+        metaCard.hidden = isChunk;
+        reviewCard.hidden = isChunk;
+        changeNoteRow.hidden = isChunk;
+        chunkNotice.hidden = !isChunk;
+        if (isChunk) {
+          chunkNotice.textContent = `Editing chunk file "${fileName}" (page ${bani.page}, ${bani.lines.length} lines) of a large Bani. Only the lines can be edited here - name/state/history/review notes live in that Bani's _meta.json.`;
+        } else {
+          bani.history = bani.history || [];
+          fName.value = bani.name || '';
+          fState.value = bani.state || 'PROVISIONAL';
+          fSlugGranth.textContent = `slug: ${bani.slug}  ·  granth: ${bani.granthSlug}  ·  ${bani.lines.length} lines`;
+        }
         renderLines();
         renderNotes();
         editor.hidden = false;
@@ -318,37 +339,48 @@
       });
 
       document.getElementById('saveBtn').addEventListener('click', () => {
-        bani.name = fName.value;
-        bani.state = fState.value;
         bani.lines = bani.lines.filter((l) => l.t.trim() !== '');
         bani.lines.forEach((l) => {
           if (!l.s) delete l.s;
           if (l.v && l.v.length === 0) delete l.v;
         });
-        bani.reviewNotes = bani.reviewNotes.filter((n) => n.note.trim() !== '');
 
-        const note = changeNote.value.trim();
-        if (note) {
-          const nextVersion = (bani.history.reduce((m, h) => Math.max(m, h.versionNo || 0), 0) || 0) + 1;
-          bani.history.push({ date: new Date().toISOString().slice(0, 10), versionNo: nextVersion, note });
+        let outName, outObj;
+        if (isChunk) {
+          outObj = { page: bani.page, lines: bani.lines };
+          outName = fileName;
+        } else {
+          bani.name = fName.value;
+          bani.state = fState.value;
+          bani.reviewNotes = bani.reviewNotes.filter((n) => n.note.trim() !== '');
+          const note = changeNote.value.trim();
+          if (note) {
+            const nextVersion = (bani.history.reduce((m, h) => Math.max(m, h.versionNo || 0), 0) || 0) + 1;
+            bani.history.push({ date: new Date().toISOString().slice(0, 10), versionNo: nextVersion, note });
+          }
+          const problems = PothiBuild.validateBani(bani, bani.granthSlug);
+          if (problems.length) {
+            alert('This file has problems and was not saved:\n\n' + problems.join('\n'));
+            return;
+          }
+          outObj = bani;
+          outName = bani.slug + '.json';
         }
 
-        const problems = PothiBuild.validateBani(bani, bani.granthSlug);
-        if (problems.length) {
-          alert('This file has problems and was not saved:\n\n' + problems.join('\n'));
-          return;
-        }
-
-        const json = JSON.stringify(bani, null, 2) + '\n';
+        const json = JSON.stringify(outObj, null, 2) + '\n';
         const blob = new Blob([json], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.getElementById('downloadLink');
         a.href = url;
-        a.download = bani.slug + '.json';
+        a.download = outName;
         a.hidden = true;
         a.click();
         changeNote.value = '';
-        alert('Saved ' + bani.slug + '.json — move it into src/content/' + bani.granthSlug + '/ to replace the old file.');
+        alert(
+          isChunk
+            ? `Saved ${outName} — move it back into place, replacing the old chunk file. Consider also adding a history entry to that Bani's _meta.json.`
+            : `Saved ${outName} — move it into src/content/${bani.granthSlug}/ to replace the old file.`,
+        );
       });
     </script>
   </body>

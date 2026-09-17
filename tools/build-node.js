@@ -23,6 +23,26 @@ function readJson(p) {
 
 const manifest = readJson(path.join(CONTENT, 'manifest.json'));
 
+// A Bani is either content/<granth>/<slug>.json (one file), or
+// content/<granth>/<slug>/ (a directory: _meta.json for the Bani's own
+// fields, plus any number of chunk files - e.g. ang-0001.json - each
+// {"lines":[...]}, concatenated in filename order). The second form exists
+// for very large Banian (a complete Granth) so no single file balloons
+// past what's reasonable to review a diff of.
+function loadComposite(dir) {
+  const meta = readJson(path.join(dir, '_meta.json'));
+  const chunkFiles = fs
+    .readdirSync(dir)
+    .filter((f) => f.endsWith('.json') && f !== '_meta.json')
+    .sort();
+  const lines = [];
+  for (const f of chunkFiles) {
+    const chunk = readJson(path.join(dir, f));
+    lines.push(...chunk.lines);
+  }
+  return { ...meta, lines };
+}
+
 const baniBySlug = new Map();
 const problems = [];
 for (const granth of manifest.granths) {
@@ -31,9 +51,16 @@ for (const granth of manifest.granths) {
     problems.push(`Folder missing for granth "${granth.slug}": ${dir}`);
     continue;
   }
-  for (const file of fs.readdirSync(dir)) {
-    if (!file.endsWith('.json')) continue;
-    const bani = readJson(path.join(dir, file));
+  for (const entry of fs.readdirSync(dir)) {
+    const entryPath = path.join(dir, entry);
+    let bani;
+    if (fs.statSync(entryPath).isDirectory()) {
+      bani = loadComposite(entryPath);
+    } else if (entry.endsWith('.json')) {
+      bani = readJson(entryPath);
+    } else {
+      continue;
+    }
     const fileProblems = PothiBuild.validateBani(bani, granth.slug);
     problems.push(...fileProblems);
     baniBySlug.set(bani.slug, bani);
@@ -63,4 +90,4 @@ fs.writeFileSync(outPath, html, 'utf8');
 
 const totalLines = data.banis.reduce((n, b) => n + b.lines.length, 0);
 console.log(`Built ${outPath}`);
-console.log(`${data.banis.length} Banian, ${totalLines} lines, ${(html.length / 1024 / 1024).toFixed(2)} MB.`);
+console.log(`${data.banis.length} Banian, ${totalLines} lines, ${(Buffer.byteLength(html, 'utf8') / 1024 / 1024).toFixed(2)} MB.`);

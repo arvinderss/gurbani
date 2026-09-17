@@ -1,0 +1,225 @@
+{
+  "slug": "sri-guru-granth-sahib-ji-complete",
+  "name": "ਸੰਪੂਰਨ ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ · Complete Sri Guru Granth Sahib Ji",
+  "granthSlug": "sggs",
+  "state": "PROVISIONAL",
+  "source": {
+    "name": "Shabad OS database",
+    "license": "Gurbani data: Public Domain Mark 1.0 (per repository README); package code: MIT",
+    "attribution": "Text adopted from the Shabad OS database (shabados.com), which identifies Gurbani as public domain; physical editions as cited per line.",
+    "url": "https://github.com/shabados/database"
+  },
+  "history": [
+    {
+      "date": "2026-09-17",
+      "versionNo": 1,
+      "note": "Imported complete text (60,555 lines, all 1430 Angs) from the Shabad OS database (release 4.8.7), via the gurmukhi-utils converter."
+    }
+  ],
+  "sections": [
+    {
+      "t": "RAAG",
+      "name": "ਜਪੁ · Jap"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਸੋ ਦਰੁ · So Dar"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਸੋ ਪੁਰਖੁ · So Purakh"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਸੋਹਿਲਾ · Sohila"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਸਿਰੀ ਰਾਗੁ · Siree Raag"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਰਾਗੁ ਮਾਝ · Raag Maajh"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਰਾਗੁ ਗਉੜੀ · Raag Gauree"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਰਾਗੁ ਆਸਾ · Raag Aasaa"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਰਾਗੁ ਗੂਜਰੀ · Raag Gujri"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਰਾਗੁ ਦੇਵਗੰਧਾਰੀ · Raag Dayv Gandhaaree"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਰਾਗੁ ਬਿਹਾਗੜਾ · Raag Bihaagraa"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਰਾਗੁ ਵਡਹੰਸੁ · Raag Vadhans"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਰਾਗੁ ਸੋਰਠਿ · Raag Sorath"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਰਾਗੁ ਧਨਾਸਰੀ · Raag Dhanaasree"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਰਾਗੁ ਜੈਤਸਰੀ · Raag Jaithsree"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਰਾਗੁ ਟੋਡੀ · Raag Todee"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਰਾਗੁ ਬੈਰਾੜੀ · Raag Bairaaree"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਰਾਗੁ ਤਿਲੰਗ · Raag Tilang"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਰਾਗੁ ਸੂਹੀ · Raag Soohee"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਰਾਗੁ ਬਿਲਾਵਲੁ · Raag Bilaaval"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਰਾਗੁ ਗੋਂਡ · Raag Gond"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਰਾਗੁ ਰਾਮਕਲੀ · Raag Raamkalee"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਰਾਗੁ ਨਟ ਨਾਰਾਇਨ · Raag Nat Naaraayan"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਰਾਗੁ ਮਾਲੀ ਗਉੜਾ · Raag Maalee Gauraa"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਰਾਗੁ ਮਾਰੂ · Raag Maaroo"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਰਾਗੁ ਤੁਖਾਰੀ · Raag Tukhaari"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਰਾਗੁ ਕੇਦਾਰਾ · Raag Kaydaaraa"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਰਾਗੁ ਭੈਰਉ · Raag Bhairao"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਰਾਗੁ ਬਸੰਤੁ · Raag Basant"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਰਾਗੁ ਸਾਰੰਗ · Raag Saarang"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਰਾਗੁ ਮਲਾਰ · Raag Malaar"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਰਾਗੁ ਕਾਨੜਾ · Raag Kaanraa"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਰਾਗੁ ਕਲਿਆਨ · Raag Kalyaan"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਰਾਗੁ ਪ੍ਰਭਾਤੀ · Raag Prabhaatee"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਰਾਗੁ ਜੈਜਾਵੰਤੀ · Raag Jaijaavantee"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਸਲੋਕ ਸਹਸਕ੍ਰਿਤੀ · Salok Sehshkritee"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਗਾਥਾ ਮਹਲਾ ੫ · Gaathaa Fifth Mehl"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਫੁਨਹੇ ਮਹਲਾ ੫ · Phunhay Fifth Mehl"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਚਉਬੋਲੇ ਮਹਲਾ ੫ · Chaubolas Fifth Mehl"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਸਲੋਕੁ ਭਗਤ ਕਬੀਰ ਜੀਉ ਕੇ · Salok Kabeer Jee"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਸਲੋਕੁ ਸੇਖ ਫਰੀਦ ਕੇ · Salok Fareed Jee"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਸਵਈਏ ਸ੍ਰੀ ਮੁਖਬਾਕ ਮਹਲਾ ੫ · Svaiyay Sri Mukhbak Mehl 5"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਸਵਈਏ ਮਹਲੇ ਪਹਿਲੇ ਕੇ · Svaiyay First Mehl"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਸਵਈਏ ਮਹਲੇ ਦੂਜੇ ਕੇ · Svaiyay Second Mehl"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਸਵਈਏ ਮਹਲੇ ਤੀਜੇ ਕੇ · Svaiyay Third Mehl"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਸਵਈਏ ਮਹਲੇ ਚਉਥੇ ਕੇ · Svaiyay Fourth Mehl"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਸਵਈਏ ਮਹਲੇ ਪੰਜਵੇ ਕੇ · Svaiyay Fifth Mehl"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਸਲੋਕੁ ਵਾਰਾ ਤੇ ਵਧੀਕ · Salok Vaaran Thay Vadheek"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਸਲੋਕੁ ਮਹਲਾ ੯ · Salok Ninth Mehl"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਮੁੰਦਾਵਣੀ ਮਹਲਾ ੫ · Mundhaavanee Fifth Mehl"
+    },
+    {
+      "t": "RAAG",
+      "name": "ਰਾਗਮਾਲਾ · Raagmala"
+    }
+  ]
+}

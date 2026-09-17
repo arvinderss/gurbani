@@ -238,6 +238,11 @@
         text-align: var(--align);
         color: var(--gurbani);
         margin: 0 auto;
+        /* Some Gurmukhi conjuncts/matras render slightly wider than their
+           logical box; without this the last glyph on a wrapped line can
+           get clipped right at the edge. Symmetric so centred text still
+           looks centred. */
+        padding: 0 0.5em;
       }
       .line {
         margin: 0.15em 0;
@@ -251,7 +256,12 @@
         cursor: default;
       }
       [data-larivaar='on'] .gap {
-        display: none;
+        /* Not display:none - that removes the space from layout entirely,
+           leaving no point left where the line is allowed to wrap, which
+           forces the whole Bani onto one unbroken horizontal strip.
+           font-size:0 keeps the space (and the wrap opportunity it gives
+           the browser) while rendering it with no visible width. */
+        font-size: 0;
       }
       [data-larivaar='on'][data-assist='on'] .w:nth-child(even of .w) {
         color: var(--assist);

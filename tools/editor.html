@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pothi Sahib — Content Editor</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 52rem;
+        margin: 1.5rem auto;
+        padding: 0 1rem 6rem;
+        color: #222;
+        line-height: 1.5;
+      }
+      h1 {
+        font-size: 1.3rem;
+      }
+      .muted {
+        color: #666;
+        font-size: 0.85rem;
+      }
+      .card {
+        border: 1px solid #ddd;
+        border-radius: 0.5rem;
+        padding: 1rem;
+        margin: 1rem 0;
+      }
+      button {
+        font: inherit;
+        padding: 0.4rem 0.8rem;
+        border-radius: 0.4rem;
+        border: 1px solid #999;
+        background: #f5f5f5;
+        cursor: pointer;
+      }
+      button.primary {
+        background: #2a5d34;
+        color: #fff;
+        border-color: #2a5d34;
+      }
+      button.danger {
+        color: #a11;
+      }
+      button.small {
+        font-size: 0.75rem;
+        padding: 0.15rem 0.5rem;
+      }
+      .row {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+      }
+      .meta label {
+        display: block;
+        margin: 0.4rem 0 0.1rem;
+        font-size: 0.85rem;
+        color: #444;
+      }
+      .meta input,
+      .meta select {
+        width: 100%;
+        font: inherit;
+        padding: 0.3rem;
+      }
+      .line {
+        border-bottom: 1px solid #eee;
+        padding: 0.6rem 0;
+      }
+      .line .idx {
+        font-size: 0.75rem;
+        color: #999;
+        width: 3rem;
+        flex: none;
+      }
+      .line input.text {
+        flex: 1;
+        font: inherit;
+        font-size: 1.1rem;
+        padding: 0.3rem 0.4rem;
+        direction: ltr;
+      }
+      .words {
+        margin: 0.3rem 0 0 3rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.2rem;
+      }
+      .word-chip {
+        font-size: 0.85rem;
+        padding: 0.1rem 0.4rem;
+        border-radius: 0.3rem;
+        border: 1px solid #ccc;
+        background: #fafafa;
+        cursor: pointer;
+      }
+      .word-chip[data-kind='0'] {
+        background: #ffe3d6;
+        border-color: #e2711d;
+      }
+      .word-chip[data-kind='1'] {
+        background: #fff1cf;
+        border-color: #e09b00;
+      }
+      .word-chip[data-kind='2'] {
+        background: #ffd6dc;
+        border-color: #c8102e;
+      }
+      .line-controls {
+        margin-left: 3rem;
+        margin-top: 0.3rem;
+      }
+      textarea {
+        width: 100%;
+        font: inherit;
+      }
+      .notes-list .note {
+        border: 1px solid #eee;
+        border-radius: 0.3rem;
+        padding: 0.4rem;
+        margin: 0.3rem 0;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Pothi Sahib — Content Editor</h1>
+    <p class="muted">
+      Opens entirely in this browser tab. Nothing is uploaded anywhere. Load one Bani's JSON file, correct it, save —
+      it downloads the corrected file, which you drop back into <code>src/content/&lt;granth&gt;/</code> in place of
+      the old one, then rebuild with <a href="build.html">build.html</a>.
+    </p>
+
+    <div class="card">
+      <input type="file" id="picker" accept="application/json,.json" />
+    </div>
+
+    <div id="editor" hidden>
+      <div class="card meta">
+        <label>Name (as shown in the app)</label>
+        <input id="fName" />
+        <label>State</label>
+        <select id="fState">
+          <option value="PROVISIONAL">Provisional — adopted from a source, not yet checked line by line</option>
+          <option value="REVIEWED">Reviewed — checked against a printed edition</option>
+        </select>
+        <p class="muted" id="fSlugGranth"></p>
+      </div>
+
+      <div class="card">
+        <strong>Lines</strong>
+        <p class="muted">
+          Click a word to cycle its vishraam mark: none → short → medium → long → none. Editing text never changes
+          existing marks' word positions unless you add or remove words in that line.
+        </p>
+        <div id="lines"></div>
+        <button id="addLine">+ Add line at end</button>
+      </div>
+
+      <div class="card">
+        <strong>Review notes</strong>
+        <p class="muted">Known issues for this Bani, shown to readers under a "⚠ known review notes" toggle.</p>
+        <div id="reviewNotes" class="notes-list"></div>
+        <button id="addNote">+ Add review note</button>
+      </div>
+
+      <div class="card">
+        <strong>Save</strong>
+        <label class="muted">What changed and why (this becomes a Changelog entry)</label>
+        <textarea id="changeNote" rows="2" placeholder="e.g. Fixed a missing matra in line 42 per the Gurdwara Gyan da Sagar edition"></textarea>
+        <div class="row" style="margin-top: 0.5rem">
+          <button id="saveBtn" class="primary">Save corrected JSON</button>
+          <a id="downloadLink" hidden></a>
+        </div>
+      </div>
+    </div>
+
+    <script src="build-lib.js"></script>
+    <script>
+      'use strict';
+      let bani = null;
+      let fileName = '';
+
+      const picker = document.getElementById('picker');
+      const editor = document.getElementById('editor');
+      const fName = document.getElementById('fName');
+      const fState = document.getElementById('fState');
+      const fSlugGranth = document.getElementById('fSlugGranth');
+      const linesEl = document.getElementById('lines');
+      const reviewNotesEl = document.getElementById('reviewNotes');
+      const changeNote = document.getElementById('changeNote');
+
+      picker.addEventListener('change', async () => {
+        const file = picker.files[0];
+        if (!file) return;
+        fileName = file.name;
+        bani = JSON.parse(await file.text());
+        bani.lines = bani.lines || [];
+        bani.reviewNotes = bani.reviewNotes || [];
+        bani.history = bani.history || [];
+        fName.value = bani.name || '';
+        fState.value = bani.state || 'PROVISIONAL';
+        fSlugGranth.textContent = `slug: ${bani.slug}  ·  granth: ${bani.granthSlug}  ·  ${bani.lines.length} lines`;
+        renderLines();
+        renderNotes();
+        editor.hidden = false;
+      });
+
+      function renderLines() {
+        linesEl.replaceChildren();
+        bani.lines.forEach((line, i) => linesEl.append(lineRow(line, i)));
+      }
+
+      function lineRow(line, i) {
+        const wrap = document.createElement('div');
+        wrap.className = 'line';
+
+        const row = document.createElement('div');
+        row.className = 'row';
+        const idx = document.createElement('span');
+        idx.className = 'idx';
+        idx.textContent = '#' + (i + 1);
+        const input = document.createElement('input');
+        input.className = 'text';
+        input.value = line.t;
+        input.lang = 'pa';
+        input.addEventListener('input', () => {
+          line.t = input.value;
+          renderWordChips(chips, line);
+        });
+        row.append(idx, input);
+        wrap.append(row);
+
+        const chips = document.createElement('div');
+        chips.className = 'words';
+        renderWordChips(chips, line);
+        wrap.append(chips);
+
+        const controls = document.createElement('div');
+        controls.className = 'line-controls row';
+        const del = document.createElement('button');
+        del.className = 'small danger';
+        del.textContent = 'Delete line';
+        del.addEventListener('click', () => {
+          if (!confirm('Delete this line?')) return;
+          bani.lines.splice(i, 1);
+          renderLines();
+        });
+        const insertAfter = document.createElement('button');
+        insertAfter.className = 'small';
+        insertAfter.textContent = '+ Insert line after';
+        insertAfter.addEventListener('click', () => {
+          bani.lines.splice(i + 1, 0, { t: '', s: line.s });
+          renderLines();
+        });
+        controls.append(insertAfter, del);
+        wrap.append(controls);
+
+        return wrap;
+      }
+
+      function renderWordChips(container, line) {
+        container.replaceChildren();
+        const words = PothiBuild.deriveWords(line.t);
+        const vish = new Map(line.v || []);
+        words.forEach(([s, e], wi) => {
+          const chip = document.createElement('span');
+          chip.className = 'word-chip';
+          const kind = vish.get(wi);
+          if (kind !== undefined) chip.dataset.kind = String(kind);
+          chip.textContent = Array.from(line.t).slice(s, e).join('');
+          chip.title = 'Click to cycle vishraam: none → short → medium → long';
+          chip.addEventListener('click', () => {
+            const cur = vish.has(wi) ? vish.get(wi) : -1;
+            const next = cur + 1;
+            if (next > 2) vish.delete(wi);
+            else vish.set(wi, next);
+            line.v = Array.from(vish.entries());
+            renderWordChips(container, line);
+          });
+          container.append(chip);
+        });
+      }
+
+      function renderNotes() {
+        reviewNotesEl.replaceChildren();
+        bani.reviewNotes.forEach((note, i) => {
+          const div = document.createElement('div');
+          div.className = 'note';
+          const lineInput = document.createElement('input');
+          lineInput.type = 'number';
+          lineInput.min = '1';
+          lineInput.value = note.lineIndex + 1;
+          lineInput.style.width = '5rem';
+          lineInput.addEventListener('input', () => (note.lineIndex = Math.max(0, +lineInput.value - 1)));
+          const textInput = document.createElement('textarea');
+          textInput.rows = 2;
+          textInput.value = note.note;
+          textInput.addEventListener('input', () => (note.note = textInput.value));
+          const del = document.createElement('button');
+          del.className = 'small danger';
+          del.textContent = 'Remove';
+          del.addEventListener('click', () => {
+            bani.reviewNotes.splice(i, 1);
+            renderNotes();
+          });
+          div.append(document.createTextNode('Line #'), lineInput, textInput, del);
+          reviewNotesEl.append(div);
+        });
+      }
+      document.getElementById('addNote').addEventListener('click', () => {
+        bani.reviewNotes.push({ lineIndex: 0, note: '' });
+        renderNotes();
+      });
+      document.getElementById('addLine').addEventListener('click', () => {
+        const prevSection = bani.lines.length ? bani.lines[bani.lines.length - 1].s : 0;
+        bani.lines.push({ t: '', s: prevSection });
+        renderLines();
+      });
+
+      document.getElementById('saveBtn').addEventListener('click', () => {
+        bani.name = fName.value;
+        bani.state = fState.value;
+        bani.lines = bani.lines.filter((l) => l.t.trim() !== '');
+        bani.lines.forEach((l) => {
+          if (!l.s) delete l.s;
+          if (l.v && l.v.length === 0) delete l.v;
+        });
+        bani.reviewNotes = bani.reviewNotes.filter((n) => n.note.trim() !== '');
+
+        const note = changeNote.value.trim();
+        if (note) {
+          const nextVersion = (bani.history.reduce((m, h) => Math.max(m, h.versionNo || 0), 0) || 0) + 1;
+          bani.history.push({ date: new Date().toISOString().slice(0, 10), versionNo: nextVersion, note });
+        }
+
+        const problems = PothiBuild.validateBani(bani, bani.granthSlug);
+        if (problems.length) {
+          alert('This file has problems and was not saved:\n\n' + problems.join('\n'));
+          return;
+        }
+
+        const json = JSON.stringify(bani, null, 2) + '\n';
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.getElementById('downloadLink');
+        a.href = url;
+        a.download = bani.slug + '.json';
+        a.hidden = true;
+        a.click();
+        changeNote.value = '';
+        alert('Saved ' + bani.slug + '.json — move it into src/content/' + bani.granthSlug + '/ to replace the old file.');
+      });
+    </script>
+  </body>
+</html>

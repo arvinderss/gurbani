@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pothi Sahib — Build</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 46rem;
+        margin: 2rem auto;
+        padding: 0 1rem 4rem;
+        color: #222;
+        line-height: 1.5;
+      }
+      h1 {
+        font-size: 1.3rem;
+      }
+      .card {
+        border: 1px solid #ddd;
+        border-radius: 0.5rem;
+        padding: 1rem;
+        margin: 1rem 0;
+      }
+      button {
+        font: inherit;
+        padding: 0.5rem 1rem;
+        border-radius: 0.4rem;
+        border: 1px solid #999;
+        background: #f5f5f5;
+        cursor: pointer;
+      }
+      button.primary {
+        background: #2a5d34;
+        color: #fff;
+        border-color: #2a5d34;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      ul.problems {
+        color: #a11;
+        max-height: 16rem;
+        overflow: auto;
+        font-size: 0.85rem;
+      }
+      .ok {
+        color: #2a5d34;
+      }
+      pre {
+        white-space: pre-wrap;
+        font-size: 0.8rem;
+        background: #f7f7f7;
+        padding: 0.5rem;
+      }
+      .muted {
+        color: #666;
+        font-size: 0.9rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Pothi Sahib — Build</h1>
+    <p class="muted">
+      Opens entirely in this browser tab. Nothing is installed and nothing leaves your device — pick the project
+      folder, it validates the content, and gives you a new <code>pothi-sahib.html</code> to download.
+    </p>
+
+    <div class="card">
+      <p><strong>Step 1.</strong> Pick the project's <code>src</code> folder (the one containing <code>app/</code> and <code>content/</code>).</p>
+      <input type="file" id="picker" webkitdirectory multiple />
+      <p class="muted" id="pickStatus"></p>
+    </div>
+
+    <div class="card" id="validation" hidden>
+      <p><strong>Step 2.</strong> Validation</p>
+      <div id="validationResult"></div>
+    </div>
+
+    <div class="card" id="buildCard" hidden>
+      <p><strong>Step 3.</strong> Build</p>
+      <button id="buildBtn" class="primary">Build pothi-sahib.html</button>
+      <p id="buildResult"></p>
+      <a id="downloadLink" hidden download="pothi-sahib.html"><button class="primary">Download pothi-sahib.html</button></a>
+    </div>
+
+    <script src="build-lib.js"></script>
+    <script>
+      'use strict';
+      const picker = document.getElementById('picker');
+      const pickStatus = document.getElementById('pickStatus');
+      const validationCard = document.getElementById('validation');
+      const validationResult = document.getElementById('validationResult');
+      const buildCard = document.getElementById('buildCard');
+      const buildBtn = document.getElementById('buildBtn');
+      const buildResult = document.getElementById('buildResult');
+      const downloadLink = document.getElementById('downloadLink');
+
+      let manifest = null;
+      let baniBySlug = new Map();
+      let appFiles = {}; // 'head.html' | 'styles.css' | 'body.html' | 'app.js' -> text
+
+      function relPath(file) {
+        // webkitRelativePath looks like "src/content/dasam/akal-ustat.json"
+        const parts = file.webkitRelativePath.split('/');
+        return parts.slice(1).join('/'); // drop the top "src" folder name
+      }
+
+      async function readText(file) {
+        return await file.text();
+      }
+
+      picker.addEventListener('change', async () => {
+        manifest = null;
+        baniBySlug = new Map();
+        appFiles = {};
+        validationCard.hidden = true;
+        buildCard.hidden = true;
+        downloadLink.hidden = true;
+
+        const files = Array.from(picker.files);
+        pickStatus.textContent = `Reading ${files.length} files…`;
+
+        const problems = [];
+        const contentFolders = new Map(); // granthSlug -> [bani objects]
+
+        for (const file of files) {
+          const rel = relPath(file);
+          if (rel === 'content/manifest.json') {
+            try {
+              manifest = JSON.parse(await readText(file));
+            } catch (e) {
+              problems.push('content/manifest.json: ' + e.message);
+            }
+          } else if (rel.startsWith('content/') && rel.endsWith('.json')) {
+            const m = rel.match(/^content\/([^/]+)\/([^/]+)\.json$/);
+            if (!m) {
+              problems.push(rel + ': unexpected location for a content file.');
+              continue;
+            }
+            const [, granthSlug, slugFromFile] = m;
+            let bani;
+            try {
+              bani = JSON.parse(await readText(file));
+            } catch (e) {
+              problems.push(rel + ': invalid JSON — ' + e.message);
+              continue;
+            }
+            if (bani.slug !== slugFromFile) {
+              problems.push(`${rel}: file name "${slugFromFile}.json" does not match its "slug" field ("${bani.slug}").`);
+            }
+            const fileProblems = PothiBuild.validateBani(bani, granthSlug);
+            problems.push(...fileProblems);
+            baniBySlug.set(bani.slug, bani);
+          } else if (rel === 'app/head.html') appFiles.head = await readText(file);
+          else if (rel === 'app/styles.css') appFiles.styles = await readText(file);
+          else if (rel === 'app/body.html') appFiles.body = await readText(file);
+          else if (rel === 'app/app.js') appFiles.js = await readText(file);
+        }
+
+        if (!manifest) problems.unshift('content/manifest.json was not found in the selected folder.');
+        else problems.push(...PothiBuild.validateManifest(manifest, baniBySlug));
+
+        for (const [key, label] of [
+          ['head', 'app/head.html'],
+          ['styles', 'app/styles.css'],
+          ['body', 'app/body.html'],
+          ['js', 'app/app.js'],
+        ]) {
+          if (!appFiles[key]) problems.unshift(label + ' was not found in the selected folder.');
+        }
+
+        pickStatus.textContent = `Read ${files.length} files — ${baniBySlug.size} Bani(s) found.`;
+        validationCard.hidden = false;
+        if (problems.length) {
+          validationResult.innerHTML = '';
+          const ul = document.createElement('ul');
+          ul.className = 'problems';
+          for (const p of problems) {
+            const li = document.createElement('li');
+            li.textContent = p;
+            ul.append(li);
+          }
+          validationResult.append(document.createTextNode(`${problems.length} problem(s) found — fix these before building:`), ul);
+          buildCard.hidden = true;
+        } else {
+          validationResult.innerHTML = '<p class="ok">✓ Everything checks out.</p>';
+          buildCard.hidden = false;
+        }
+      });
+
+      buildBtn.addEventListener('click', () => {
+        const data = PothiBuild.buildKoshData(manifest, baniBySlug);
+        const html = PothiBuild.assembleHtml({
+          headHtml: appFiles.head,
+          styleCss: appFiles.styles,
+          bodyHtml: appFiles.body,
+          appJs: appFiles.js,
+          data,
+        });
+        const totalLines = data.banis.reduce((n, b) => n + b.lines.length, 0);
+        buildResult.textContent = `Built: ${data.banis.length} Banian, ${totalLines} lines, ${(html.length / 1024 / 1024).toFixed(2)} MB.`;
+        const blob = new Blob([html], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+        downloadLink.href = url;
+        downloadLink.hidden = false;
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,60 @@
+{
+  "granths": [
+    {
+      "slug": "dasam",
+      "name": "ਸ੍ਰੀ ਦਸਮ ਗ੍ਰੰਥ ਸਾਹਿਬ · Sri Dasam Granth Sahib",
+      "order": [
+        "akal-ustat",
+        "shabad-hazare-patshahi-10",
+        "chandi-di-var",
+        "jaap-sahib",
+        "tav-prasad-savaiye-sravag-sudh",
+        "tav-prasad-savaiye-deenan-ki",
+        "benti-chaupai-sahib"
+      ]
+    },
+    {
+      "slug": "panthic-compilations",
+      "name": "ਪੰਥਕ ਸੰਗ੍ਰਹਿ · Panthic compilations",
+      "order": [
+        "ardaas",
+        "aarti",
+        "rehras-sahib-s",
+        "rehras-sahib-t",
+        "aarti-longer"
+      ]
+    },
+    {
+      "slug": "sggs",
+      "name": "ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ · Sri Guru Granth Sahib Ji",
+      "order": [
+        "oankaar",
+        "anand-sahib-6-pauris-and-salok",
+        "anand-sahib",
+        "alahnia-songs-of-grief",
+        "asa-ki-var",
+        "shabad-hazare",
+        "salok-mehla-9",
+        "sidh-gosht",
+        "sukhmani-sahib",
+        "sohila-sahib",
+        "sri-guru-granth-sahib-paath-bhog-mundavnni",
+        "sri-guru-granth-sahib-paath-bhog-ragmala",
+        "jap-ji-sahib",
+        "barah-maha",
+        "bavan-akhri",
+        "raamkali-sad",
+        "lavan-anand-karaj"
+      ]
+    }
+  ],
+  "nitnem": [
+    "jap-ji-sahib",
+    "jaap-sahib",
+    "tav-prasad-savaiye-sravag-sudh",
+    "benti-chaupai-sahib",
+    "anand-sahib",
+    "rehras-sahib-s",
+    "sohila-sahib"
+  ]
+}

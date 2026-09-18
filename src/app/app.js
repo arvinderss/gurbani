@@ -40,6 +40,8 @@ const DEFAULTS = {
   bookmarks: {},
   sehaj: {},
   flags: [], // reader-added "please review this line" notes; see § flags
+  bookmarkArchive: [], // { slug, pos, removedAt } - entries removed from Continue Reading, newest last
+  archiveSize: 15, // how many removed entries to keep, user-adjustable 3-30
   openCats: {}, // which collapsible <details> categories the user has toggled, by id
 };
 const KEY = 'pothi-sahib-standalone';
@@ -257,6 +259,63 @@ function renderHome() {
   view.append(q, holder);
   renderContinueReading();
   draw('');
+  renderBookmarksArchive();
+  /** Archive a removed Continue Reading entry so it can be restored, keeping only the last S.archiveSize. */
+  function archivePosition(slug, pos) {
+    S.bookmarkArchive.push({ slug, pos, removedAt: Date.now() });
+    if (S.bookmarkArchive.length > S.archiveSize) S.bookmarkArchive = S.bookmarkArchive.slice(-S.archiveSize);
+  }
+  function renderBookmarksArchive() {
+    const old = view.querySelector('.bookmarks-archive');
+    if (old) old.remove();
+    const stepper = el('div', { class: 'row', style: 'gap:.5rem;align-items:center;margin-bottom:.5rem' }, [
+      el('span', { class: 'small muted', text: 'Keep last' }),
+      el('input', {
+        type: 'number',
+        min: '3',
+        max: '30',
+        value: String(S.archiveSize),
+        style: 'width:4.5rem',
+        onchange: (e) => {
+          const n = Math.min(30, Math.max(3, Math.round(+e.target.value) || DEFAULTS.archiveSize));
+          S.archiveSize = n;
+          if (S.bookmarkArchive.length > n) S.bookmarkArchive = S.bookmarkArchive.slice(-n);
+          save();
+          renderBookmarksArchive();
+        },
+      }),
+      el('span', { class: 'small muted', text: 'removed entries (3–30)' }),
+    ]);
+    const entries = S.bookmarkArchive.filter((entry) => BY_SLUG.has(entry.slug));
+    const rows = entries.length
+      ? entries
+          .slice()
+          .reverse()
+          .map((entry) => {
+            const bani = BY_SLUG.get(entry.slug);
+            const pct = Math.round((entry.pos.i / Math.max(1, bani.lines.length - 1)) * 100);
+            return el('div', { class: 'row', style: 'margin: 0.5rem 0' }, [
+              el('div', { style: 'flex:1' }, [
+                el('div', { text: bani.name }),
+                el('div', { class: 'small muted', text: pct + '% · removed ' + timeAgo(entry.removedAt) }),
+              ]),
+              el('button', {
+                class: 'primary small',
+                text: 'Restore',
+                onclick: () => {
+                  S.positions[entry.slug] = entry.pos;
+                  S.bookmarkArchive = S.bookmarkArchive.filter((x) => x !== entry);
+                  save();
+                  renderContinueReading();
+                  renderBookmarksArchive();
+                },
+              }),
+            ]);
+          })
+      : [el('p', { class: 'small muted', text: 'Nothing archived yet — entries you remove from Continue Reading appear here.' })];
+    const section = el('div', { class: 'bookmarks-archive' }, [catDetails('home-archive', '🗄', 'Bookmarks Archive', [stepper, el('div', { class: 'card' }, rows)], false)]);
+    view.append(section);
+  }
   function renderContinueReading() {
     const inProgress = Object.entries(S.positions)
       .filter(([k]) => BY_SLUG.has(k))
@@ -282,9 +341,11 @@ function renderHome() {
           text: '✕',
           'aria-label': 'Remove ' + bani.name + ' from Continue Reading',
           onclick: () => {
+            archivePosition(slug, pos);
             delete S.positions[slug];
             save();
             renderContinueReading();
+            renderBookmarksArchive();
           },
         }),
       ]);

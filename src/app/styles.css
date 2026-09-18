@@ -323,7 +323,11 @@
       }
       [data-paragraph='on'] .sec-body {
         display: block;
-        margin-bottom: 1em;
+        /* Scales with the line-spacing setting (--lh) so the gap between
+           paragraphs stays clearly bigger than the wrap gap *within* one -
+           a flat 1em was actually *smaller* than --lh's usual 2.2, so
+           paragraphs read as tighter than their own wrapped lines. */
+        margin-bottom: calc(var(--lh) * 1em);
       }
       h2.sec {
         font-family: var(--ui);

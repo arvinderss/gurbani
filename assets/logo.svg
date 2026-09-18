@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 48">
+  <!-- Pothi Sahib logo: an open book, no religious iconography by design.
+       In-app it's rendered inline with fill="currentColor" so it re-themes
+       (see logoMark() in src/app/app.js); this file is the standalone
+       source-of-truth copy, coloured with the default (light-theme) accent
+       for anywhere it needs to be viewed on its own. -->
+  <path d="M2 5 L29 12 L29 43 L2 36 Z" fill="#6b4f2a" />
+  <path d="M62 5 L35 12 L35 43 L62 36 Z" fill="#6b4f2a" />
+</svg>

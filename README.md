@@ -2,7 +2,7 @@
 
 An offline Gurbani reader. The whole app — code, styling, and all 31
 Banian (137,732 lines, including the complete Sri Guru Granth Sahib Ji and
-complete Sri Dasam Granth Sahib) — is one ~22MB HTML file with no
+complete Sri Dasam Granth Sahib) — is one ~14MB HTML file with no
 dependencies, no network calls, and nothing to install. It works
 identically on Android, iOS, Windows, macOS and Linux: just open it in a
 browser.
@@ -134,6 +134,16 @@ is a five-line diff in one small file, not a search through a 60,000-line
 document. `tools/build.html`, `tools/build-node.js` and `tools/editor.html`
 all read and write this form the same as a single-file Bani.
 
+The build also keeps these two complete Granths **out of the boot-time
+JSON**: each above a 3000-line threshold gets its own inline
+`<script id="kosh-data-bani-<slug>">` block, which the app parses only when
+that Granth is actually opened (`ensureBaniLines()` in `src/app/app.js`).
+Word offsets are likewise never embedded any more — the app derives them
+on demand the first time each line is rendered. Both changes together cut
+the eagerly-parsed payload from ~16M characters of JSON to a ~0.5M
+character stub, so a low-end phone parses the whole app in a few
+milliseconds and only pays the ~30ms parse for a Granth when they open it.
+
 ### Content file schema
 
 ```jsonc
@@ -157,12 +167,12 @@ all read and write this form the same as a single-file Bani.
 }
 ```
 
-Word offsets (`w`) and the old per-line hash (`h`) are **not** stored here
-— `w` is derived automatically at build time from the text, and `h` was
-unused dead weight inherited from the original data source. Vishraam
-marks (`v`) are stored as `[wordIndex, kind]` pairs (`kind`: 0 = short,
-1 = medium, 2 = long) rather than raw character offsets, so they survive
-an ordinary text correction elsewhere in the line.
+Word offsets and the old per-line hash (`h`) are **not** stored here — the
+app computes word boundaries on demand at render time (a one-time cost, in
+memory, per line), and `h` was unused dead weight inherited from the
+original data source. Vishraam marks (`v`) are stored as `[wordIndex, kind]`
+pairs (`kind`: 0 = short, 1 = medium, 2 = long) rather than raw character
+offsets, so they survive an ordinary text correction elsewhere in the line.
 
 ## Known limitations
 

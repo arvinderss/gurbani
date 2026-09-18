@@ -5,6 +5,67 @@ const BANIS = DATA.banis;
 const BY_SLUG = new Map(BANIS.map((b) => [b.slug, b]));
 const cps = (s) => Array.from(s);
 
+/**
+ * The two complete Granths are built into their own
+ * `<script id="kosh-data-bani-<slug>">` blocks (see tools/build-lib.js
+ * DeferLineThreshold) and only parsed when that Bani is actually opened, so
+ * boot never touches their ~60-70k lines. `deferred` marks such a stub;
+ * the app loads and merges the payload in on demand.
+ */
+const deferredCache = new Map();
+function ensureBaniLines(bani) {
+  if (bani.lines) return bani;
+  if (bani.lines === null) return bani; // a previous load found nothing
+  let payload = deferredCache.get(bani.slug);
+  if (!payload) {
+    const node = document.getElementById('kosh-data-bani-' + bani.slug);
+    if (!node) {
+      bani.lines = null;
+      return bani;
+    }
+    try {
+      payload = JSON.parse(node.textContent);
+    } catch {
+      bani.lines = null;
+      return bani;
+    }
+    deferredCache.set(bani.slug, payload);
+  }
+  bani.sections = payload.sections || [];
+  bani.lines = payload.lines;
+  return bani;
+}
+/** How many lines a Bani has, whether or not its full payload is loaded. */
+const lineCountOf = (b) => (b.lineCount !== undefined ? b.lineCount : b.lines ? b.lines.length : 0);
+
+/**
+ * Word boundaries as [start,end) codepoint offsets - the same split the
+ * build used to precompute and embed as `w`. Computing it here (and caching
+ * it on the line) moves ~7.7 MB out of the shipped JSON; the first render
+ * of a given line pays a tiny one-time cost. A line with no whitespace at
+ * all yields one whole-line span, mirroring the old embedded-data shape.
+ */
+function wordSpans(line) {
+  if (line.w && line.w.length) return line.w;
+  const cached = line._w;
+  if (cached) return cached;
+  const chars = cps(line.t);
+  const words = [];
+  let i = 0;
+  while (i < chars.length) {
+    if (/\s/.test(chars[i])) {
+      i++;
+      continue;
+    }
+    let j = i;
+    while (j < chars.length && !/\s/.test(chars[j])) j++;
+    words.push([i, j]);
+    i = j;
+  }
+  line._w = words.length ? words : [[0, chars.length]];
+  return line._w;
+}
+
 // Gurmukhi letters, for first-letter search. Matras, bindi and the like are not letters.
 const NON_LETTER = new Set(cps('ਁਂਃ਼ਾਿੀੁੂੇੈੋੌ੍ੑੰੱੵ'));
 const firstLetters = (text) =>
@@ -111,7 +172,18 @@ function progressFor(slug) {
   const entry = latestEntryFor(slug);
   const bani = BY_SLUG.get(slug);
   if (!entry || !bani) return null;
-  return Math.round((entry.i / Math.max(1, bani.lines.length - 1)) * 100);
+  return Math.round((entry.i / Math.max(1, lineCountOf(bani) - 1)) * 100);
+}
+
+/** Clear saved reading state for a Bani so it behaves as unread again. */
+function markUnread(slug) {
+  const before = S.baniLog.length;
+  S.baniLog = S.baniLog.filter((e) => e.slug !== slug);
+  if (S.baniLog.length === before) return false;
+  save();
+  const bani = BY_SLUG.get(slug);
+  announce((bani ? bani.name : 'Bani') + ' marked unread');
+  return true;
 }
 
 const COLOR_VARS = [
@@ -232,6 +304,7 @@ function go(r) {
 }
 
 function render() {
+  drainCleanup();
   view.replaceChildren();
   backEl.hidden = route.tab !== 'read';
   document.getElementById('tabs').hidden = route.tab === 'read';
@@ -267,6 +340,8 @@ function searchLines(query, limit = 40) {
   const byFirstLetters = cps(q).every((c) => !NON_LETTER.has(c) && !/\s/.test(c));
   const results = [];
   for (const b of BANIS) {
+    ensureBaniLines(b);
+    if (!b.lines) continue;
     for (let i = 0; i < b.lines.length; i++) {
       const line = b.lines[i];
       const hit = line.t.includes(q) || (byFirstLetters && firstLetters(line.t).includes(q));
@@ -350,6 +425,14 @@ function renderHome() {
                 renderBookmarksArchive();
               },
             }),
+            el('button', {
+              class: 'quiet small',
+              text: 'Unread',
+              'aria-label': 'Mark ' + b.name + ' unread',
+              onclick: () => {
+                if (markUnread(b.slug)) render();
+              },
+            }),
           ]),
         )
       : [el('p', { class: 'small muted', text: 'Nothing completed yet — mark a Bani ਸੰਪੂਰਨ (complete) while reading and it shows up here.' })];
@@ -370,7 +453,7 @@ function renderHome() {
     archived.sort((a, c) => c[1].end - a[1].end);
     const rows = archived.length
       ? archived.map(([b, entry]) => {
-          const pct = Math.round((entry.i / Math.max(1, b.lines.length - 1)) * 100);
+          const pct = Math.round((entry.i / Math.max(1, lineCountOf(b) - 1)) * 100);
           return el('div', { class: 'row', style: 'margin: 0.5rem 0' }, [
             el('div', { style: 'flex:1' }, [
               el('div', { text: b.name }),
@@ -385,6 +468,14 @@ function renderHome() {
                 renderContinueReading();
                 renderCompletedBanis();
                 renderBookmarksArchive();
+              },
+            }),
+            el('button', {
+              class: 'quiet small',
+              text: 'Unread',
+              'aria-label': 'Mark ' + b.name + ' unread',
+              onclick: () => {
+                if (markUnread(b.slug)) render();
               },
             }),
           ]);
@@ -416,6 +507,14 @@ function renderHome() {
           },
           [el('div', { text: bani.name }), el('div', { class: 'small muted', text: pct + '% · ' + timeAgo(entry.end) })],
         ),
+        el('button', {
+          class: 'quiet small',
+          text: 'Unread',
+          'aria-label': 'Mark ' + bani.name + ' unread',
+          onclick: () => {
+            if (markUnread(bani.slug)) render();
+          },
+        }),
         el('button', {
           class: 'quiet hit',
           text: '✕',
@@ -536,10 +635,20 @@ function renderHome() {
                 el('div', { text: b.name }),
                 el('div', {
                   class: 'small muted',
-                  text: b.lines.length + ' lines · ' + b.state.toLowerCase() + (pct !== null ? ' · ' + pct + '% read' : ''),
+                  text: lineCountOf(b) + ' lines · ' + b.state.toLowerCase() + (pct !== null ? ' · ' + pct + '% read' : ''),
                 }),
               ],
             ),
+            pct !== null
+              ? el('button', {
+                  class: 'quiet hit',
+                  text: '↺',
+                  'aria-label': 'Mark ' + b.name + ' unread',
+                  onclick: () => {
+                    if (markUnread(b.slug)) render();
+                  },
+                })
+              : null,
           ]);
         }),
       ),
@@ -866,7 +975,7 @@ function buildSettings(view, rerender) {
   ]);
 
   // ── ℹ ABOUT ───────────────────────────────────────────
-  const total = BANIS.reduce((n, b) => n + b.lines.length, 0);
+  const total = BANIS.reduce((n, b) => n + lineCountOf(b), 0);
   const about = el('div', { class: 'card small muted' }, [
     el('p', { text: 'Pothi Sahib — single-file build. ' + BANIS.length + ' Banian, ' + total + ' lines.' }),
     el('p', { text: 'Built ' + new Date(DATA.builtAt).toLocaleString() + '.' }),
@@ -1071,8 +1180,11 @@ function calcAvgWPL(list) {
   let tw = 0,
     tl = 0;
   for (const b of list) {
-    for (const line of b.lines) {
-      tw += Math.max(1, line.w.length);
+    const n = lineCountOf(b);
+    const step = n >= HEAVY_BANI_LINES ? Math.max(1, Math.ceil(n / 2000)) : 1;
+    for (let i = 0; i < n; i += step) {
+      const line = b.lines[i];
+      tw += Math.max(1, wordSpans(line).length);
       tl++;
     }
   }
@@ -1092,19 +1204,14 @@ function wpmToPxPerSec(wpm, awpl) {
 
 // ── windowed rendering for very large Banis (the complete Granths) ──────
 // Opening a ~60-70k line Bani used to build every <p> and IntersectionObserver
-// registration in one blocking pass, which is what actually froze low-end
-// devices (the JSON itself parses in well under a second - it's the DOM/IO
-// construction that's expensive at that scale). For a Bani at or above
-// HEAVY_BANI_LINES, renderRead() below builds a small window around the
-// reader's actual starting line synchronously (still feels instant), then
-// fills in the rest before and after it in small background steps so the
-// page stays responsive and paints/accepts input throughout instead of
-// hanging. Every other Bani (the vast majority) is untouched - same single
-// synchronous pass as always.
+// registration in one pass. The previous windowed fix moved that work into
+// background frames, but still eventually filled the DOM with the whole
+// Granth. The heavy path now builds a small window around the reader's
+// starting line and extends it only as the person approaches the edges.
 const HEAVY_BANI_LINES = 3000;
-const HEAVY_WINDOW_MARGIN = 300; // lines built synchronously around the start position
-const HEAVY_CHUNK_LINES = 500; // lines built per background step, each direction
-const HEAVY_FRAME_BUDGET_MS = 8; // keep building chunks within a frame while under this budget
+const HEAVY_WINDOW_MARGIN = 180; // lines built synchronously around the start position
+const HEAVY_CHUNK_LINES = 160; // lines added when the reader nears either edge
+const HEAVY_EDGE_PX = 2400; // start extending before the reader hits the built edge
 
 /**
  * Build lines [from, to) of one Bani as a standalone DocumentFragment.
@@ -1164,6 +1271,7 @@ function renderRead() {
   readGeneration++;
   const myGeneration = readGeneration;
   const list = route.slugs.map((s) => BY_SLUG.get(s)).filter(Boolean);
+  for (const b of list) ensureBaniLines(b); // deferred complete Granths parse only when opened
   avgWPL = calcAvgWPL(list); // update global so startScroll can use it
   titleEl.textContent = route.title;
   const wrap = el('div', { class: 'text', lang: 'pa' });
@@ -1271,64 +1379,85 @@ function renderRead() {
     const winEnd = Math.min(total, targetLineIndex + HEAVY_WINDOW_MARGIN);
 
     // Phase A: build just the window around the start line synchronously,
-    // so the jump-to-position below still feels instant. Everything else
-    // streams in afterwards, in both directions, via stepChunk().
+    // so the jump-to-position below still feels instant. More lines are
+    // added only when the reader nears the built window's top/bottom edge.
     const initial = buildLineChunk(b, winStart, winEnd, indexOfLine, lastLineEl, io);
     wrap.append(initial.frag);
     let builtFrom = winStart;
     let builtTo = winEnd;
     let backAnchor = initial.firstTopNode; // insertBefore reference for the next backward chunk
     let sampuranAppended = false;
+    let heavyBuildRaf = null;
 
-    const stepChunk = () => {
+    const appendSampuranButton = () => {
+      if (sampuranAppended || builtTo < total) return;
+      sampuranAppended = true;
+      if (!S.continuous) {
+        wrap.append(
+          el('div', { class: 'row', style: 'justify-content:center;margin:1rem 0' }, [
+            el('button', {
+              class: 'quiet sampuran-btn',
+              text: '🙏 ਸੰਪੂਰਨ · Mark complete',
+              onclick: () => markSampuran(b, sessionLog),
+            }),
+          ]),
+        );
+      }
+    };
+
+    const extendForward = () => {
+      if (builtTo >= total) return false;
+      const to = Math.min(total, builtTo + HEAVY_CHUNK_LINES);
+      const chunk = buildLineChunk(b, builtTo, to, indexOfLine, lastLineEl, io);
+      wrap.append(chunk.frag);
+      builtTo = to;
+      appendSampuranButton();
+      return true;
+    };
+
+    const extendBackward = () => {
+      if (builtFrom <= 0) return false;
+      const from = Math.max(0, builtFrom - HEAVY_CHUNK_LINES);
+      const beforeHeight = document.scrollingElement.scrollHeight;
+      const chunk = buildLineChunk(b, from, builtFrom, indexOfLine, lastLineEl, io);
+      wrap.insertBefore(chunk.frag, backAnchor);
+      // New content just appeared above the reader's current spot -
+      // compensate scrollTop by the same delta so nothing visibly jumps.
+      document.scrollingElement.scrollTop += document.scrollingElement.scrollHeight - beforeHeight;
+      backAnchor = chunk.firstTopNode;
+      builtFrom = from;
+      return true;
+    };
+
+    const nearForwardEdge = () => {
+      const doc = document.scrollingElement;
+      return builtTo < total && doc.scrollHeight - (doc.scrollTop + window.innerHeight) < HEAVY_EDGE_PX;
+    };
+    const nearBackwardEdge = () => builtFrom > 0 && document.scrollingElement.scrollTop < HEAVY_EDGE_PX;
+
+    const extendHeavyWindow = () => {
+      heavyBuildRaf = null;
       if (myGeneration !== readGeneration) return; // a newer renderRead() call has taken over - abandon
       try {
-        const start = performance.now();
-        while (performance.now() - start < HEAVY_FRAME_BUDGET_MS) {
-          const canForward = builtTo < total;
-          const canBackward = builtFrom > 0;
-          if (!canForward && !canBackward) {
-            if (!sampuranAppended) {
-              sampuranAppended = true;
-              if (!S.continuous) {
-                wrap.append(
-                  el('div', { class: 'row', style: 'justify-content:center;margin:1rem 0' }, [
-                    el('button', {
-                      class: 'quiet sampuran-btn',
-                      text: '🙏 ਸੰਪੂਰਨ · Mark complete',
-                      onclick: () => markSampuran(b, sessionLog),
-                    }),
-                  ]),
-                );
-              }
-            }
-            return; // fully built - nothing left to schedule
-          }
-          if (canForward) {
-            const to = Math.min(total, builtTo + HEAVY_CHUNK_LINES);
-            const chunk = buildLineChunk(b, builtTo, to, indexOfLine, lastLineEl, io);
-            wrap.append(chunk.frag);
-            builtTo = to;
-          }
-          if (canBackward) {
-            const from = Math.max(0, builtFrom - HEAVY_CHUNK_LINES);
-            const beforeHeight = document.scrollingElement.scrollHeight;
-            const chunk = buildLineChunk(b, from, builtFrom, indexOfLine, lastLineEl, io);
-            wrap.insertBefore(chunk.frag, backAnchor);
-            // New content just appeared above the reader's current spot -
-            // compensate scrollTop by the same delta so nothing visibly
-            // jumps, the same technique any "load more above" list uses.
-            document.scrollingElement.scrollTop += document.scrollingElement.scrollHeight - beforeHeight;
-            backAnchor = chunk.firstTopNode;
-            builtFrom = from;
-          }
-        }
+        const extended = (nearForwardEdge() && extendForward()) || (nearBackwardEdge() && extendBackward());
+        if (extended && (nearForwardEdge() || nearBackwardEdge())) scheduleHeavyBuild();
       } catch (err) {
-        console.error('Pothi Sahib: heavy-Bani background render step failed, retrying next frame', err);
+        console.error('Pothi Sahib: heavy-Bani lazy render step failed', err);
       }
-      requestAnimationFrame(stepChunk);
     };
-    requestAnimationFrame(stepChunk);
+
+    function scheduleHeavyBuild() {
+      if (heavyBuildRaf !== null || myGeneration !== readGeneration) return;
+      heavyBuildRaf = requestAnimationFrame(extendHeavyWindow);
+    }
+
+    appendSampuranButton();
+    window.addEventListener('scroll', scheduleHeavyBuild, { passive: true });
+    cleanup.push(() => {
+      if (heavyBuildRaf !== null) cancelAnimationFrame(heavyBuildRaf);
+      window.removeEventListener('scroll', scheduleHeavyBuild);
+    });
+    requestAnimationFrame(scheduleHeavyBuild);
   } else {
     for (const b of list) {
       let entry = latestEntryFor(b.slug);
@@ -1452,7 +1581,7 @@ function renderLine(line) {
   const nodes = [];
   let prev = 0;
   const slice = (a, b) => chars.slice(a, b).join('');
-  (line.w.length ? line.w : [[0, chars.length]]).forEach(([s, e], idx) => {
+  wordSpans(line).forEach(([s, e], idx) => {
     if (s > prev) nodes.push(el('span', { class: 'gap', text: slice(prev, s) }));
     let kind = vish.get(idx);
     if (kind !== undefined && S.vishraamKinds[kind] === false) kind = undefined; // that severity is hidden
@@ -1909,6 +2038,19 @@ function openSettingsPanel() {
 // ------------------------------------------------------- auto-scroll
 let playBtn = null;
 const cleanup = [];
+function drainCleanup() {
+  if (!cleanup.length) return;
+  readGeneration++;
+  while (cleanup.length) {
+    const fn = cleanup.pop();
+    try {
+      fn();
+    } catch (err) {
+      console.error('Pothi Sahib: reader cleanup failed', err);
+    }
+  }
+  currentLine = null;
+}
 function toggleScroll() {
   scroller ? stopScroll() : startScroll();
 }
@@ -1929,6 +2071,12 @@ function markUserScrolling() {
   }, USER_SCROLL_IDLE_MS);
 }
 const USER_SCROLL_EVENTS = ['touchstart', 'touchmove', 'wheel', 'pointerdown'];
+// Keyboard keys that scroll the page natively; treat them like any other
+// manual scroll so autoscroll yields instead of fighting PageDown & co.
+const USER_SCROLL_KEYS = ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'];
+function onScrollKey(e) {
+  if (USER_SCROLL_KEYS.includes(e.key)) markUserScrolling();
+}
 
 function startScroll() {
   if (scroller) return;
@@ -1952,6 +2100,7 @@ function startScroll() {
   };
   scroller = requestAnimationFrame(step);
   for (const type of USER_SCROLL_EVENTS) document.addEventListener(type, markUserScrolling, { passive: true });
+  document.addEventListener('keydown', onScrollKey);
   if (playBtn) {
     playBtn.textContent = '❚❚';
     playBtn.setAttribute('aria-label', 'Pause auto-scroll');
@@ -1965,6 +2114,7 @@ function stopScroll() {
   clearTimeout(userScrollIdleTimer);
   userScrolling = false;
   for (const type of USER_SCROLL_EVENTS) document.removeEventListener(type, markUserScrolling);
+  document.removeEventListener('keydown', onScrollKey);
   if (playBtn) {
     playBtn.textContent = '▶';
     playBtn.setAttribute('aria-label', 'Start auto-scroll');
@@ -2023,8 +2173,12 @@ function releaseWakeLock() {
   }
 }
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) stopScroll();
-  else if (S.keepAwake && route.tab === 'read') requestWakeLock();
+  if (document.hidden) {
+    stopScroll();
+    releaseWakeLock();
+  } else if (S.keepAwake && route.tab === 'read') {
+    requestWakeLock();
+  }
 });
 
 // swipe right-to-left = back on touch devices

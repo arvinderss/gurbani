@@ -321,23 +321,38 @@
   }
 
   /**
-   * Assemble the final DATA object the app consumes, deriving word offsets
-   * and resolving each Bani's granth display name from the manifest.
+   * Very large Banis (currently the two complete Granths, ~60-70k lines)
+   * are moved out of the eagerly-parsed `kosh-data` block into their own
+   * `<script id="kosh-data-bani-<slug>">` block that the app parses only
+   * when that Bani is actually opened (see src/app/app.js ensureBaniLines).
+   * Defined here in one place so the app's own threshold (HEAVY_BANI_LINES
+   * in app.js) can never drift from the build's.
+   */
+  const DEFER_LINE_THRESHOLD = 3000;
+
+  /**
+   * Assemble the final DATA object the app consumes (a light stub per Bani;
+   * the complete Granths carry only their line count until opened, and word
+   * offsets are never materialised - the app computes them lazily from t).
+   * Returns { data, deferred } where `deferred` holds the full lines/sections
+   * payload for each above-threshold Bani, wrapped by assembleHtml into its
+   * own <script> block.
    */
   function buildKoshData(manifest, baniBySlug) {
     const granthName = new Map(manifest.granths.map((g) => [g.slug, g.name]));
     const banis = [];
+    const deferred = [];
     for (const g of manifest.granths) {
       for (const slug of g.order) {
         const src = baniBySlug.get(slug);
         if (!src) continue;
         const lines = src.lines.map((line) => {
-          const out = { t: line.t, w: deriveWords(line.t) };
+          const out = { t: line.t };
           if (line.s) out.s = line.s;
           if (line.v && line.v.length) out.v = line.v;
           return out;
         });
-        banis.push({
+        const common = {
           slug: src.slug,
           name: src.name,
           granth: granthName.get(src.granthSlug) || src.granthSlug,
@@ -346,23 +361,41 @@
           source: src.source,
           history: src.history || [],
           reviewNotes: src.reviewNotes || [],
-          sections: src.sections || [],
-          lines,
-        });
+        };
+        if (lines.length >= DEFER_LINE_THRESHOLD) {
+          banis.push({ ...common, deferred: true, lineCount: lines.length });
+          deferred.push({ slug: src.slug, sections: src.sections || [], lines });
+        } else {
+          banis.push({ ...common, sections: src.sections || [], lines });
+        }
       }
     }
     return {
-      builtAt: new Date().toISOString(),
-      nitnem: manifest.nitnem || [],
-      banis,
+      data: {
+        builtAt: new Date().toISOString(),
+        nitnem: manifest.nitnem || [],
+        banis,
+      },
+      deferred,
     };
   }
 
   /** Wrap the pieces into the final single-file HTML document. */
-  function assembleHtml({ headHtml, styleCss, bodyHtml, appJs, data }) {
-    const dataJson = JSON.stringify(data)
-      // </script> can never appear unescaped inside an inline <script> block
-      .replace(/<\/script/gi, '<\\/script');
+  function assembleHtml({ headHtml, styleCss, bodyHtml, appJs, data, deferred = [] }) {
+    // </script> can never appear unescaped inside an inline <script> block
+    const esc = (s) => s.replace(/<\/script/gi, '<\\/script');
+    const dataJson = esc(JSON.stringify(data));
+    const deferredBlocks = deferred
+      .map(
+        (d) =>
+          '' +
+          '    <script id="kosh-data-bani-' +
+          d.slug +
+          '" type="application/json">\n' +
+          esc(JSON.stringify({ slug: d.slug, sections: d.sections, lines: d.lines })) +
+          '\n    </script>',
+      )
+      .join('\n');
     return [
       '<!doctype html>',
       '<html lang="pa">',
@@ -376,6 +409,7 @@
       '    <script id="kosh-data" type="application/json">',
       dataJson,
       '    </script>',
+      deferredBlocks,
       '    <script>',
       appJs,
       '    </script>',
@@ -385,7 +419,7 @@
     ].join('\n');
   }
 
-  const PothiBuild = { deriveWords, validateLines, validateBani, validateManifest, registerBani, buildKoshData, assembleHtml };
+  const PothiBuild = { deriveWords, validateLines, validateBani, validateManifest, registerBani, buildKoshData, assembleHtml, DEFER_LINE_THRESHOLD };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = PothiBuild;
   else root.PothiBuild = PothiBuild;

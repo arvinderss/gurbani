@@ -81,19 +81,20 @@ if (problems.length) {
   process.exit(1);
 }
 
-const data = PothiBuild.buildKoshData(manifest, baniBySlug);
+const build = PothiBuild.buildKoshData(manifest, baniBySlug);
 const html = PothiBuild.assembleHtml({
   headHtml: fs.readFileSync(path.join(SRC, 'app', 'head.html'), 'utf8'),
   styleCss: fs.readFileSync(path.join(SRC, 'app', 'styles.css'), 'utf8'),
   bodyHtml: fs.readFileSync(path.join(SRC, 'app', 'body.html'), 'utf8'),
   appJs: fs.readFileSync(path.join(SRC, 'app', 'app.js'), 'utf8'),
-  data,
+  data: build.data,
+  deferred: build.deferred,
 });
 
 const outPath = path.join(ROOT, 'dist', 'pothi-sahib.html');
 fs.mkdirSync(path.dirname(outPath), { recursive: true });
 fs.writeFileSync(outPath, html, 'utf8');
 
-const totalLines = data.banis.reduce((n, b) => n + b.lines.length, 0);
+const totalLines = build.data.banis.reduce((n, b) => n + (b.lineCount ?? b.lines.length), 0);
 console.log(`Built ${outPath}`);
-console.log(`${data.banis.length} Banian, ${totalLines} lines, ${(Buffer.byteLength(html, 'utf8') / 1024 / 1024).toFixed(2)} MB.`);
+console.log(`${build.data.banis.length} Banian, ${totalLines} lines, ${(Buffer.byteLength(html, 'utf8') / 1024 / 1024).toFixed(2)} MB (${build.deferred.length} deferred above ${PothiBuild.DEFER_LINE_THRESHOLD} lines).`);

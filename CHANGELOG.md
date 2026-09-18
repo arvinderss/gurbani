@@ -5,6 +5,48 @@ Changes to specific Gurbani **text** are tracked per-Bani in each content
 file's own `history` array, and surfaced in-app under Settings →
 Changelog.
 
+## 2026-09-19 — Load-time and memory overhaul; issue cleanup (#3, #6, #8; #1/#2 gaps)
+
+Startup is now a fraction of what it was: boot-time JSON dropped from
+~16M characters to ~0.5M, and the shipped file from ~23MB to ~14MB.
+
+- **Complete Granths load lazily.** The build no longer puts the two
+  complete scriptures (60,555 + 67,758 lines) inside the eagerly-parsed
+  `kosh-data` block. Each is now its own inline
+  `<script id="kosh-data-bani-<slug>">` block, and the app parses a Granth
+  only when it's actually opened (`ensureBaniLines()`, with the result
+  cached for the session). Opening one costs a ~30ms parse instead of the
+  whole 16MB dump at boot — the fix #3's investigation identified as the
+  real bottleneck.
+- **Word offsets are no longer embedded at all.** The ~7.7MB of `w` arrays
+  is gone from the shipped JSON; the app derives word boundaries on demand
+  and caches them per line in memory (`wordSpans`). Big knock-on win for
+  peak memory on low-end devices, since a complete Granth only ever has
+  the lines it's actually rendered word-spanned.
+- **Windowed rendering now extends lazily.** The heavy-Bani path builds a
+  small window around the starting line and adds (insert-before/append)
+  chunks only as the reader approaches the top/bottom edge of what's built
+  — previous fixes still eventually filled the DOM with the entire Granth.
+  Scroll-position is compensated when content is inserted above so the
+  view doesn't jump. (#7 — still wants a real low-end device spot-check.)
+- **Reader teardown actually runs now (#6).** `cleanup` was registered but
+  never drained — every Bani open leaked a progress bar, an
+  `IntersectionObserver` and a bar-handle button. `render()` now calls
+  `drainCleanup()` before building the next view (tears down the previous
+  one, cancels a pending heavy-Bani build, bumps `readGeneration` so stale
+  background renders abandon).
+- **Per-Bani "Unread" control (#8).** Continue Reading, Completed, the
+  archive, and every Bani list entry offer a "mark unread" action that
+  clears that Bani's reading-position row so next open starts fresh —
+  no need to reach ਸੰਪੂਰਨ first.
+- **Wake lock released on hide (#1 gap).** When the tab flashes to the
+  background, the wake lock (and the muted-video fallback, which would
+  otherwise keep chewing battery off-screen) is now released, and
+  re-acquired on return if still reading.
+- **Keyboard scrolling yields to autoscroll (#2 gap).** PageUp/PageDown,
+  Home/End and ↑/↓ are now counted as manual scroll, so autoscroll pauses
+  instead of fighting them (touch/wheel/pointer already did).
+
 ## 2026-09-18 — Unified reading-state log; ਸੰਪੂਰਨ (Sampuran) completion
 
 Replaced three separate, overlapping state structures (`positions` for

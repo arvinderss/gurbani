@@ -5,6 +5,22 @@ Changes to specific Gurbani **text** are tracked per-Bani in each content
 file's own `history` array, and surfaced in-app under Settings →
 Changelog.
 
+## 2026-09-19 — Android install package, new brand emblem, hosted copy
+
+- **Android app** (`android/`): the built single file ships as an offline
+  WebView app (no permissions, no network). A GitHub Actions workflow
+  (`build-apk.yml`) assembles and signs a release APK on every push and
+  publishes it to the `apk` GitHub Release, stable across updates.
+- **Hosted copy**: a `deploy-pages.yml` workflow rebuilds `dist/` on every
+  push and publishes it at https://arvinderss.github.io/gurbani/.
+- **New logo**: radiant emblem (halo, glow, rays, layered 3D open book with
+  gilded page block, gem bookmark, sparkles) on a fully transparent
+  background. Source of truth is `assets/logo.svg`, shared by the in-app
+  mark, the browser favicon (synced via `tools/make-favicon.js`), and the
+  Android launcher icons.
+- CSP now allows `media-src data: blob:` so the keep-awake fallback video
+  plays inside the WebView APK (which has no Screen Wake Lock API).
+
 ## 2026-09-19 — Load-time and memory overhaul; issue cleanup (#3, #6, #8; #1/#2 gaps)
 
 Startup is now a fraction of what it was: boot-time JSON dropped from

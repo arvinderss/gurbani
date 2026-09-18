@@ -1,0 +1,48 @@
+def keystoreConfigured = System.getenv('ANDROID_KEYSTORE_B64') != null
+
+apply plugin: 'com.android.application'
+
+android {
+    namespace 'dev.arvinderss.pothisahib'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'dev.arvinderss.pothisahib'
+        minSdk 21
+        targetSdk 34
+        versionCode 1
+        versionName '1.0.0'
+    }
+
+    signingConfigs {
+        if (keystoreConfigured) {
+            release {
+                storeFile rootProject.file('keystore-release.jks')
+                storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('ANDROID_KEY_ALIAS')
+                keyPassword System.getenv('ANDROID_KEY_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            // Signed CI builds use the release keystore (GitHub secret);
+            // without one the APK gets the debug key so it still installs.
+            signingConfig keystoreConfigured ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+}
+
+// The APK bundles the built single-file app as itself: one asset, no assets/
+// folder in the repo. copied fresh on every build.
+tasks.register('copyAppHtml', Copy) {
+    from rootProject.file('../dist/pothi-sahib.html')
+    into project.layout.projectDirectory.dir('src/main/assets')
+    rename { 'index.html' }
+}
+
+tasks.named('preBuild') {
+    dependsOn 'copyAppHtml'
+}

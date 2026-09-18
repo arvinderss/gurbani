@@ -1,9 +1,97 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 48">
-  <!-- Pothi Sahib logo: an open book, no religious iconography by design.
-       In-app it's rendered inline with fill="currentColor" so it re-themes
-       (see logoMark() in src/app/app.js); this file is the standalone
-       source-of-truth copy, coloured with the default (light-theme) accent
-       for anywhere it needs to be viewed on its own. -->
-  <path d="M2 5 L29 12 L29 43 L2 36 Z" fill="#6b4f2a" />
-  <path d="M62 5 L35 12 L35 43 L62 36 Z" fill="#6b4f2a" />
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Pothi Sahib logo: a radiant, dimensional emblem on a fully transparent
+       background — halo ring and glow, rays, a layered open book with gilded
+       page block and shaded 3D cover, gold bookmark with gem, three sparkles
+       and a soft cast shadow. No religious iconography by design. In-app it's
+       drawn inline with fill="currentColor" (see logoMark() in app.js). -->
+  <defs>
+    <radialGradient id="gGlow" cx="32" cy="24" r="26" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f6d98e" stop-opacity=".95"/>
+      <stop offset=".45" stop-color="#e9ba5e" stop-opacity=".34"/>
+      <stop offset="1" stop-color="#e9ba5e" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="gGold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f6d68a"/>
+      <stop offset="1" stop-color="#b98a38"/>
+    </linearGradient>
+    <linearGradient id="gBook" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8a6235"/>
+      <stop offset="1" stop-color="#4e371d"/>
+    </linearGradient>
+    <linearGradient id="gSheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".5"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="gShade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000000" stop-opacity=".32"/>
+    </linearGradient>
+  </defs>
+
+  <!-- halo ring -->
+  <circle cx="32" cy="25" r="25" fill="none" stroke="url(#gGold)" stroke-width="1" opacity=".18"/>
+
+  <!-- glow -->
+  <ellipse cx="32" cy="24" rx="22" ry="13.5" fill="url(#gGlow)"/>
+
+  <!-- cast shadow -->
+  <ellipse cx="32" cy="54" rx="17" ry="3" fill="#20140a" opacity=".26"/>
+
+  <!-- gilded back pages -->
+  <path d="M32 30 C41 29 52 30 55 34 C57 37.5 58 48 55 52 C53 56 44 57 32 55 Z" fill="url(#gGold)" opacity=".85"/>
+  <path d="M32 30 C23 29 12 30 9 34 C7 37.5 6 48 9 52 C11 56 20 57 32 55 Z" fill="url(#gGold)" opacity=".85"/>
+
+  <!-- page block (paper edges between the covers) -->
+  <g stroke="url(#gGold)" stroke-width="1.1" stroke-linecap="round" fill="none" opacity=".9">
+    <path d="M50 36.5 L50.6 50.6"/>
+    <path d="M45 34.5 L45.4 52.4"/>
+    <path d="M41 33.6 L41.2 53.2"/>
+    <path d="M14 36.5 L13.4 50.6"/>
+    <path d="M19 34.5 L18.6 52.4"/>
+    <path d="M23 33.6 L22.8 53.2"/>
+  </g>
+
+  <!-- rays -->
+  <g stroke="url(#gGold)" stroke-width="1.4" stroke-linecap="round" fill="none">
+    <path d="M32 31 L32 15" opacity=".9"/>
+    <path d="M24.5 31.5 L16 16" opacity=".7"/>
+    <path d="M39.5 31.5 L48 16" opacity=".7"/>
+    <path d="M18 34 L9 25" opacity=".55"/>
+    <path d="M46 34 L55 25" opacity=".55"/>
+  </g>
+
+  <!-- open-book cover -->
+  <path d="M32 33.5 C40 32.5 49 32.5 52.5 36.5 C54.5 39 55.5 47.5 52.5 50.5 C50.5 53.5 42.5 54.8 32 52.6 Z" fill="url(#gBook)"/>
+  <path d="M32 33.5 C24 32.5 15 32.5 11.5 36.5 C9.5 39 8.5 47.5 11.5 50.5 C13.5 53.5 21.5 54.8 32 52.6 Z" fill="url(#gBook)"/>
+  <path d="M32 33.5 C40 32.5 49 32.5 52.5 36.5 C54.5 39 55.5 47.5 52.5 50.5 C50.5 53.5 42.5 54.8 32 52.6 Z" fill="url(#gSheen)"/>
+  <path d="M32 33.5 C24 32.5 15 32.5 11.5 36.5 C9.5 39 8.5 47.5 11.5 50.5 C13.5 53.5 21.5 54.8 32 52.6 Z" fill="url(#gSheen)"/>
+  <path d="M32 33.5 C40 32.5 49 32.5 52.5 36.5 C54.5 39 55.5 47.5 52.5 50.5 C50.5 53.5 42.5 54.8 32 52.6 Z" fill="url(#gShade)"/>
+  <path d="M32 33.5 C24 32.5 15 32.5 11.5 36.5 C9.5 39 8.5 47.5 11.5 50.5 C13.5 53.5 21.5 54.8 32 52.6 Z" fill="url(#gShade)"/>
+
+  <!-- scribe lines -->
+  <g fill="url(#gGold)">
+    <rect x="36" y="40.5" width="9" height="1.6" rx=".8"/>
+    <rect x="37" y="45.5" width="7" height="1.6" rx=".8"/>
+    <rect x="19" y="40.5" width="9" height="1.6" rx=".8"/>
+    <rect x="20" y="45.5" width="7" height="1.6" rx=".8"/>
+  </g>
+  <g fill="url(#gSheen)" opacity=".55">
+    <rect x="36" y="40.5" width="9" height=".9" rx=".45"/>
+    <rect x="19" y="40.5" width="9" height=".9" rx=".45"/>
+  </g>
+
+  <!-- spine crease -->
+  <path d="M31.2 33.5 l0 19 l1.6 0 l0 -19 Z" fill="#241a0e" opacity=".5"/>
+
+  <!-- bookmark with gem -->
+  <path d="M29.6 15.6 L32 13.2 L34.4 15.6 L32 20.5 Z" fill="url(#gGold)"/>
+  <path d="M30.2 20.5 L33.8 20.5 L33.8 39 L32 35.8 L30.2 39 Z" fill="url(#gGold)"/>
+  <path d="M31 36.5 L33 36.5 L33 28 L32 25 L31 28 Z" fill="#ffffff" opacity=".55"/>
+
+  <!-- sparkles -->
+  <g fill="url(#gGold)">
+    <path d="M16 3.8 L17.1 7.9 L21.2 9 L17.1 10.1 L16 14.2 L14.9 10.1 L10.8 9 L14.9 7.9 Z"/>
+    <path d="M32 1.8 L33.1 5.9 L37.2 7 L33.1 8.1 L32 12.2 L30.9 8.1 L26.8 7 L30.9 5.9 Z"/>
+    <path d="M48 3.8 L49.1 7.9 L53.2 9 L49.1 10.1 L48 14.2 L46.9 10.1 L42.8 9 L46.9 7.9 Z"/>
+  </g>
 </svg>

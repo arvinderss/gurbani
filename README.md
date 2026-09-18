@@ -15,6 +15,13 @@ connection to run.
 There's also a hosted copy, rebuilt from `main` on every push:
 **[read it live at arvinderss.github.io/gurbani](https://arvinderss.github.io/gurbani/)**.
 
+**Android:** grab the signed installer from the
+**[`apk` release](https://github.com/arvinderss/gurbani/releases/tag/apk)** —
+it's the same single file wrapped in an offline WebView app (no
+permissions, no network), with the same launcher icon. It's rebuilt and
+re-signed on every push to `main`, so it updates in place. Build it
+yourself with `cd android && ./gradlew assembleRelease`.
+
 Everything else in this repository exists so that the Gurbani **text**
 underneath that file can be corrected and audited over time without
 wrestling with the file itself.

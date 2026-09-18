@@ -244,15 +244,50 @@ const logoMark = (className) =>
   el('span', { class: 'logo-mark' + (className ? ' ' + className : ''), 'aria-hidden': 'true' }, [
     (() => {
       const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      svg.setAttribute('viewBox', '0 0 64 48');
+      svg.setAttribute('viewBox', '0 0 64 64');
       svg.setAttribute('focusable', 'false');
-      const p1 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      p1.setAttribute('d', 'M2 5 L29 12 L29 43 L2 36 Z');
-      p1.setAttribute('fill', 'currentColor');
-      const p2 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      p2.setAttribute('d', 'M62 5 L35 12 L35 43 L62 36 Z');
-      p2.setAttribute('fill', 'currentColor');
-      svg.append(p1, p2);
+      const mk = (tag, attrs) => {
+        const n = document.createElementNS('http://www.w3.org/2000/svg', tag);
+        for (const k in attrs) n.setAttribute(k, attrs[k]);
+        return n;
+      };
+      const solid = (d, extra) => mk('path', Object.assign({ d, fill: 'currentColor' }, extra));
+      svg.append(
+        mk('circle', { cx: '32', cy: '25', r: '25', fill: 'none', stroke: 'currentColor', 'stroke-width': '1', opacity: '.13' }),
+        mk('ellipse', { cx: '32', cy: '24', rx: '22', ry: '13.5', fill: 'currentColor', opacity: '.14' }),
+        mk('ellipse', { cx: '32', cy: '54', rx: '17', ry: '3', fill: 'currentColor', opacity: '.14' }),
+        solid('M32 30 C41 29 52 30 55 34 C57 37.5 58 48 55 52 C53 56 44 57 32 55 Z', { opacity: '.5' }),
+        solid('M32 30 C23 29 12 30 9 34 C7 37.5 6 48 9 52 C11 56 20 57 32 55 Z', { opacity: '.5' }),
+        mk('g', { stroke: 'currentColor', 'stroke-width': '1.1', 'stroke-linecap': 'round', fill: 'none', opacity: '.45' }).append(
+          mk('path', { d: 'M50 36.5 L50.6 50.6' }),
+          mk('path', { d: 'M45 34.5 L45.4 52.4' }),
+          mk('path', { d: 'M41 33.6 L41.2 53.2' }),
+          mk('path', { d: 'M14 36.5 L13.4 50.6' }),
+          mk('path', { d: 'M19 34.5 L18.6 52.4' }),
+          mk('path', { d: 'M23 33.6 L22.8 53.2' })
+        ),
+        mk('g', { stroke: 'currentColor', 'stroke-width': '1.4', 'stroke-linecap': 'round', fill: 'none', opacity: '.8' })
+          .append(
+            mk('path', { d: 'M32 31 L32 15', opacity: '.9' }),
+            mk('path', { d: 'M24.5 31.5 L16 16', opacity: '.7' }),
+            mk('path', { d: 'M39.5 31.5 L48 16', opacity: '.7' }),
+            mk('path', { d: 'M18 34 L9 25', opacity: '.55' }),
+            mk('path', { d: 'M46 34 L55 25', opacity: '.55' })
+          ),
+        solid('M32 33.5 C40 32.5 49 32.5 52.5 36.5 C54.5 39 55.5 47.5 52.5 50.5 C50.5 53.5 42.5 54.8 32 52.6 Z'),
+        solid('M32 33.5 C24 32.5 15 32.5 11.5 36.5 C9.5 39 8.5 47.5 11.5 50.5 C13.5 53.5 21.5 54.8 32 52.6 Z'),
+        mk('g', { fill: 'currentColor', opacity: '.9' }).append(
+          mk('rect', { x: '36', y: '40.5', width: '9', height: '1.6', rx: '.8' }),
+          mk('rect', { x: '37', y: '45.5', width: '7', height: '1.6', rx: '.8' }),
+          mk('rect', { x: '19', y: '40.5', width: '9', height: '1.6', rx: '.8' }),
+          mk('rect', { x: '20', y: '45.5', width: '7', height: '1.6', rx: '.8' })
+        ),
+        solid('M29.6 15.6 L32 13.2 L34.4 15.6 L32 20.5 Z'),
+        solid('M30.2 20.5 L33.8 20.5 L33.8 39 L32 35.8 L30.2 39 Z'),
+        solid('M16 3.8 L17.1 7.9 L21.2 9 L17.1 10.1 L16 14.2 L14.9 10.1 L10.8 9 L14.9 7.9 Z'),
+        solid('M32 1.8 L33.1 5.9 L37.2 7 L33.1 8.1 L32 12.2 L30.9 8.1 L26.8 7 L30.9 5.9 Z'),
+        solid('M48 3.8 L49.1 7.9 L53.2 9 L49.1 10.1 L48 14.2 L46.9 10.1 L42.8 9 L46.9 7.9 Z')
+      );
       return svg;
     })(),
   ]);

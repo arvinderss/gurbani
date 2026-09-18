@@ -1,3 +1,9 @@
 node_modules/
 *.log
 .DS_Store
+
+# Android build outputs + signing key (never commit a keystore)
+android/keystore-release.jks
+android/app/build/
+android/.gradle/
+android/local.properties

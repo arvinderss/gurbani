@@ -5,6 +5,40 @@ Changes to specific Gurbani **text** are tracked per-Bani in each content
 file's own `history` array, and surfaced in-app under Settings →
 Changelog.
 
+## 2026-09-18 — New Granth Sahib Ji category, collapsible UI, reading tools
+
+- New top-level category **"Granth Sahib Ji"**, holding the two complete
+  scriptures, moved out of the `sggs`/`dasam` groupings they previously
+  sat in (their content folders moved to `content/granth-sahib-ji/`,
+  `granthSlug` updated to match). Renamed per request:
+  - Sri Guru Granth Sahib Ji (complete) → "ਧਨ ਧਨ ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ · Dhan Dhan Guru Granth Sahib Ji"
+  - Sri Dasam Granth Sahib (complete) → "ਸ੍ਰੀ ਦਸਮ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ · Shri Dasam Granth Sahib Ji"
+- Investigated cross-category duplicate content per request: found no
+  accidental duplicates. What exists (Benti Chaupai Sahib inside Rehras
+  Sahib (S.); Anand Sahib 6-pauris and Salok Mehla 9 inside the SGGS
+  Paath Bhog compilations) is standard Gurbani compilation structure, not
+  a data error - left as-is since removing the standalone entries would
+  break Nitnem/standalone access to them.
+- Every collapsible section (Home groups, Settings categories) now uses
+  native `<details>`/`<summary>`, state remembered per-device.
+- Settings reorganized into logical categories: Typography, Reading
+  Behaviour, Vishraam, Appearance & Colours, Speed & Scrolling, My Flags,
+  Changelog, Backup & Restore, About.
+- Vishraam marks can now be shown/hidden per severity (long/medium/short)
+  independently, not just on/off as a whole.
+- New "Auto-start on open" setting: auto-scroll begins immediately when a
+  Bani is opened/resumed, instead of requiring a manual tap.
+- Reading progress % now shows on every Bani list entry everywhere (not
+  just Continue Reading).
+- New: long-press a line (or right-click on desktop) to add a note, share
+  the line as plain text (OS share sheet / clipboard), or share it as a
+  themed, bordered image (portrait or landscape, download or share-sheet
+  with image files where supported). Text stays selectable - only iOS's
+  native long-press callout is suppressed so it doesn't fight the new menu.
+- "Definitions/meaning" was requested alongside notes/share but needs a
+  translation data source decision first - not included in this pass, see
+  project notes.
+
 ## 2026-09-18 — Security/UX audit pass
 
 A full review against code readability, security-by-design, data/workflow

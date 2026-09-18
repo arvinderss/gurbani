@@ -21,10 +21,12 @@ const DEFAULTS = {
   larivaarAssist: true,
   vishraam: true,
   vishraamStyle: 'colored',
+  vishraamKinds: { 0: true, 1: true, 2: true }, // per-severity visibility: 0=short,1=medium,2=long
   paragraph: false,
   continuous: false,
   keepAwake: true,
   showTitles: true,
+  autoScrollOnOpen: false, // start auto-scroll immediately when a Bani opens/resumes
   size: 28,
   lh: 2.2,
   weight: 700,
@@ -38,6 +40,7 @@ const DEFAULTS = {
   bookmarks: {},
   sehaj: {},
   flags: [], // reader-added "please review this line" notes; see § flags
+  openCats: {}, // which collapsible <details> categories the user has toggled, by id
 };
 const KEY = 'pothi-sahib-standalone';
 let S = load();
@@ -85,6 +88,14 @@ function timeAgo(ts) {
     }
   }
   return 'a while ago';
+}
+
+/** Reading progress % for a Bani slug, or null if never opened. */
+function progressFor(slug) {
+  const pos = S.positions[slug];
+  const bani = BY_SLUG.get(slug);
+  if (!pos || !bani) return null;
+  return Math.round((pos.i / Math.max(1, bani.lines.length - 1)) * 100);
 }
 
 const COLOR_VARS = [
@@ -147,6 +158,30 @@ const setting = (label, control, desc) =>
     el('label', {}, [document.createTextNode(label), desc ? el('span', { class: 'desc', text: desc }) : null]),
     control,
   ]);
+
+/**
+ * A collapsible <details> section used for both Home groups and Settings
+ * categories. Open/closed state persists per-id in S.openCats so the app
+ * remembers what a person collapsed. `defaultOpen` only matters the first
+ * time a given id is ever seen.
+ */
+function catDetails(id, icon, title, nodes, defaultOpen = true) {
+  const isOpen = id in S.openCats ? S.openCats[id] : defaultOpen;
+  const d = document.createElement('details');
+  d.className = 'cat';
+  d.open = isOpen;
+  d.addEventListener('toggle', () => {
+    S.openCats[id] = d.open;
+    save();
+  });
+  const summary = document.createElement('summary');
+  const h = el('h2', { class: 'section cat-title' });
+  const ic = el('em', { class: 'sec-ic', 'aria-hidden': 'true', text: icon });
+  h.append(ic, document.createTextNode(' ' + title));
+  summary.append(h);
+  d.append(summary, ...[].concat(nodes).filter(Boolean));
+  return d;
+}
 
 function go(r) {
   route = r;
@@ -229,38 +264,32 @@ function renderHome() {
     const old = view.querySelector('.continue-reading');
     if (old) old.remove();
     if (!inProgress.length) return;
-    const section = el('section', { class: 'continue-reading' }, [
-      el('h2', { class: 'section', text: 'Continue Reading' }),
-      el(
-        'div',
-        { class: 'card' },
-        inProgress.map(([slug, pos]) => {
-          const bani = BY_SLUG.get(slug);
-          const pct = Math.round((pos.i / Math.max(1, bani.lines.length - 1)) * 100);
-          return el('div', { class: 'row', style: 'margin: 0.5rem 0' }, [
-            el(
-              'button',
-              {
-                class: 'quiet',
-                style: 'text-align:left;flex:1',
-                onclick: () => go({ tab: 'read', slugs: [slug], key: slug, title: bani.name }),
-              },
-              [el('div', { text: bani.name }), el('div', { class: 'small muted', text: pct + '% · ' + timeAgo(pos.at) })],
-            ),
-            el('button', {
-              class: 'quiet hit',
-              text: '✕',
-              'aria-label': 'Remove ' + bani.name + ' from Continue Reading',
-              onclick: () => {
-                delete S.positions[slug];
-                save();
-                renderContinueReading();
-              },
-            }),
-          ]);
+    const rows = inProgress.map(([slug, pos]) => {
+      const bani = BY_SLUG.get(slug);
+      const pct = progressFor(slug);
+      return el('div', { class: 'row', style: 'margin: 0.5rem 0' }, [
+        el(
+          'button',
+          {
+            class: 'quiet',
+            style: 'text-align:left;flex:1',
+            onclick: () => go({ tab: 'read', slugs: [slug], key: slug, title: bani.name }),
+          },
+          [el('div', { text: bani.name }), el('div', { class: 'small muted', text: pct + '% · ' + timeAgo(pos.at) })],
+        ),
+        el('button', {
+          class: 'quiet hit',
+          text: '✕',
+          'aria-label': 'Remove ' + bani.name + ' from Continue Reading',
+          onclick: () => {
+            delete S.positions[slug];
+            save();
+            renderContinueReading();
+          },
         }),
-      ),
-    ]);
+      ]);
+    });
+    const section = el('div', { class: 'continue-reading' }, [catDetails('home-continue', '📖', 'Continue Reading', el('div', { class: 'card' }, rows))]);
     view.prepend(section);
   }
   function draw(filter) {
@@ -273,10 +302,10 @@ function renderHome() {
     }
     if (!filter) {
       const nitnem = NITNEM.map((s) => BY_SLUG.get(s)).filter(Boolean);
-      if (nitnem.length) holder.append(group('ਨਿਤਨੇਮ ਬਾਣੀਆਂ · Nitnem Baniya', nitnem, true));
+      if (nitnem.length) holder.append(group('home-nitnem', 'ਨਿਤਨੇਮ ਬਾਣੀਆਂ · Nitnem Baniya', nitnem, true));
     }
-    if (favs.length && !filter) holder.append(group('★ Favourites', favs));
-    for (const [g, items] of groups) holder.append(group(g, items));
+    if (favs.length && !filter) holder.append(group('home-favs', '★ Bookmarked (Favourites)', favs));
+    for (const [g, items] of groups) holder.append(group('home-granth-' + g, g, items));
     if (!groups.size) holder.append(el('p', { class: 'muted', text: 'Nothing matches.' }));
 
     // Full-text results only once the query is meaningfully specific -
@@ -319,9 +348,8 @@ function renderHome() {
       }
     }
   }
-  function group(name, items, readAll) {
-    return el('section', {}, [
-      el('h2', { class: 'section', text: name }),
+  function group(id, name, items, readAll) {
+    return catDetails(id, '📚', name, [
       readAll
         ? el('div', { class: 'row', style: 'margin-bottom:.4rem' }, [
             el('span', { class: 'small muted', text: 'Read all seven in order' }),
@@ -342,8 +370,9 @@ function renderHome() {
       el(
         'ul',
         { class: 'list' },
-        items.map((b) =>
-          el('li', {}, [
+        items.map((b) => {
+          const pct = progressFor(b.slug);
+          return el('li', {}, [
             el('button', {
               class: 'quiet hit',
               text: S.favourites.includes(b.slug) ? '★' : '☆',
@@ -367,12 +396,12 @@ function renderHome() {
                 el('div', { text: b.name }),
                 el('div', {
                   class: 'small muted',
-                  text: b.lines.length + ' lines · ' + b.state.toLowerCase(),
+                  text: b.lines.length + ' lines · ' + b.state.toLowerCase() + (pct !== null ? ' · ' + pct + '% read' : ''),
                 }),
               ],
             ),
-          ]),
-        ),
+          ]);
+        }),
       ),
     ]);
   }
@@ -434,137 +463,163 @@ function buildSettings(view, rerender) {
       el('label', {}, [document.createTextNode(label), desc ? el('span', { class: 'desc', text: desc }) : null]),
       control,
     ]);
-  const sh = (icon, text) => {
-    const h = el('h2', { class: 'section' });
-    const ic = el('em', { class: 'sec-ic', 'aria-hidden': 'true', text: icon });
-    h.append(ic, document.createTextNode(' ' + text));
-    return h;
-  };
+  const toggle = (label, icon, key, desc) =>
+    srow(
+      icon,
+      label,
+      el('button', {
+        class: 'sw',
+        role: 'switch',
+        'aria-checked': String(!!S[key]),
+        'aria-label': label,
+        onclick: (ev) => {
+          S[key] = !S[key];
+          ev.currentTarget.setAttribute('aria-checked', String(S[key]));
+          rerender();
+        },
+      }),
+      desc,
+    );
 
-  // ── 📖 READING ─────────────────────────────────────
-  view.append(sh('📖', 'Reading'));
-  view.append(
-    el(
-      'div',
-      { class: 'card' },
-      [
-        srow(
-          'ਲ',
-          'Larivaar',
-          el('button', {
-            class: 'sw',
-            role: 'switch',
-            'aria-checked': String(!!S.larivaar),
-            'aria-label': 'Larivaar',
-            onclick: (ev) => {
-              S.larivaar = !S.larivaar;
-              ev.currentTarget.setAttribute('aria-checked', String(S.larivaar));
-              rerender();
-            },
-          }),
-          'Continuous Gurmukhi — no spaces between words',
-        ),
-        srow(
-          '🌈',
-          'Larivaar Assist',
-          el('button', {
-            class: 'sw',
-            role: 'switch',
-            'aria-checked': String(!!S.larivaarAssist),
-            'aria-label': 'Larivaar assist',
-            onclick: (ev) => {
-              S.larivaarAssist = !S.larivaarAssist;
-              ev.currentTarget.setAttribute('aria-checked', String(S.larivaarAssist));
-              rerender();
-            },
-          }),
-          'Colour alternate words so the eye can separate them',
-        ),
-        srow(
-          '¶',
-          'Paragraph Mode',
-          el('button', {
-            class: 'sw',
-            role: 'switch',
-            'aria-checked': String(!!S.paragraph),
-            'aria-label': 'Paragraph mode',
-            onclick: (ev) => {
-              S.paragraph = !S.paragraph;
-              ev.currentTarget.setAttribute('aria-checked', String(S.paragraph));
-              rerender();
-            },
-          }),
-          'Group lines into blocks rather than one line each',
-        ),
-        srow(
-          '📜',
-          'Continuous Reading',
-          el('button', {
-            class: 'sw',
-            role: 'switch',
-            'aria-checked': String(!!S.continuous),
-            'aria-label': 'Continuous reading',
-            onclick: (ev) => {
-              S.continuous = !S.continuous;
-              ev.currentTarget.setAttribute('aria-checked', String(S.continuous));
-              rerender();
-            },
-          }),
-          'Hide headings and provenance for undisturbed paath',
-        ),
-        srow(
-          '∼',
-          'Vishraam Marks',
-          el('button', {
-            class: 'sw',
-            role: 'switch',
-            'aria-checked': String(!!S.vishraam),
-            'aria-label': 'Show vishraams',
-            onclick: (ev) => {
-              S.vishraam = !S.vishraam;
-              ev.currentTarget.setAttribute('aria-checked', String(S.vishraam));
-              rerender();
-            },
-          }),
-          'Pause marks from the source — never added to the text',
-        ),
-        S.vishraam
-          ? srow(
-              '≋',
-              'Vishraam Style',
-              sel(
-                S.vishraamStyle,
-                [
-                  ['colored', 'Coloured'],
-                  ['underline', 'Underlined'],
-                  ['spaced', 'Spaced'],
-                ],
-                (v) => (S.vishraamStyle = v),
-              ),
-            )
-          : null,
-        srow(
-          '#',
-          'Section Titles',
-          el('button', {
-            class: 'sw',
-            role: 'switch',
-            'aria-checked': String(!!S.showTitles),
-            'aria-label': 'Show titles',
-            onclick: (ev) => {
-              S.showTitles = !S.showTitles;
-              ev.currentTarget.setAttribute('aria-checked', String(S.showTitles));
-              rerender();
-            },
-          }),
-          'Section headings inside a Bani',
-        ),
-      ].filter(Boolean),
-    ),
+  // ── 🖐 READING BEHAVIOUR (interactivity) ─────────────────────────
+  const readingBehaviour = el(
+    'div',
+    { class: 'card' },
+    [
+      toggle('Larivaar', 'ਲ', 'larivaar', 'Continuous Gurmukhi — no spaces between words'),
+      toggle('Larivaar Assist', '🌈', 'larivaarAssist', 'Colour alternate words so the eye can separate them'),
+      toggle('Paragraph Mode', '¶', 'paragraph', 'Group lines into blocks rather than one line each'),
+      toggle('Continuous Reading', '📜', 'continuous', 'Hide headings for undisturbed paath'),
+      toggle('Section Titles', '#', 'showTitles', 'Section/Raag headings inside a Bani'),
+    ].filter(Boolean),
   );
 
-  // ── 🎨 APPEARANCE ──────────────────────────────────
-  view.append(sh('🎨', 'Appearance'));
+  // ── ∼ VISHRAAM ─────────────────────────────────────────
+  const vishKindRow = (kind, label) =>
+    el('label', { class: 'row', style: 'gap:.4rem;font-size:.85rem' }, [
+      el('input', {
+        type: 'checkbox',
+        checked: S.vishraamKinds[kind] !== false,
+        onchange: (e) => {
+          S.vishraamKinds = { ...S.vishraamKinds, [kind]: e.target.checked };
+          save();
+        },
+      }),
+      document.createTextNode(label),
+    ]);
+  const vishraam = el(
+    'div',
+    { class: 'card' },
+    [
+      toggle('Vishraam Marks', '∼', 'vishraam', 'Pause marks from the source — never added to the text'),
+      S.vishraam
+        ? srow(
+            '≋',
+            'Vishraam Style',
+            sel(
+              S.vishraamStyle,
+              [
+                ['colored', 'Coloured'],
+                ['underline', 'Underlined'],
+                ['spaced', 'Spaced'],
+              ],
+              (v) => (S.vishraamStyle = v),
+            ),
+          )
+        : null,
+      S.vishraam
+        ? el('div', { class: 'setting' }, [
+            el('span', { class: 'setting-icon', 'aria-hidden': 'true', text: '☰' }),
+            el('label', {}, document.createTextNode('Show by severity')),
+            el('div', { class: 'row', style: 'gap:.75rem;flex-wrap:wrap' }, [
+              vishKindRow(2, 'Long'),
+              vishKindRow(1, 'Medium'),
+              vishKindRow(0, 'Short'),
+            ]),
+          ])
+        : null,
+    ].filter(Boolean),
+  );
+
+  // ── Aa TYPOGRAPHY ──────────────────────────────────────
+  const typography = el('div', { class: 'card' }, [
+    el('p', {
+      class: 'text',
+      style: 'margin:.5rem 0;font-size:calc(var(--size)*.75)',
+      text: 'ੰ ਸ੍ਰੀ ਵਾਹਿਗੁਰੂ ਜੀ ਕੀ ਫਤਿਹ',
+    }),
+    srow('📐', 'Text size', num(() => S.size, (v) => (S.size = v), 1, 14, 72, (v) => v + ' px')),
+    srow(
+      '↕',
+      'Line spacing',
+      el('div', { class: 'row' }, [
+        num(() => S.lh, (v) => (S.lh = v), 0.1, 1, 4, (v) => v.toFixed(1)),
+        el(
+          'div',
+          { class: 'wpm-presets' },
+          [
+            ['Compact', 1.4],
+            ['Normal', 1.8],
+            ['Airy', 2.2],
+            ['Open', 2.8],
+          ].map(([t, v]) =>
+            el('button', {
+              text: t,
+              class: S.lh === v ? 'primary' : '',
+              onclick: () => {
+                S.lh = v;
+                rerender();
+              },
+            }),
+          ),
+        ),
+      ]),
+    ),
+    srow(
+      '🔤',
+      'Font',
+      sel(
+        S.font,
+        [
+          ["'Noto Sans Gurmukhi', 'Nirmala UI', sans-serif", 'Noto Sans Gurmukhi'],
+          ["'Nirmala UI', sans-serif", 'Nirmala UI'],
+          ["'Gurbani Akhar', 'Noto Sans Gurmukhi', sans-serif", 'Gurbani Akhar'],
+          ["'Mukta Mahee', sans-serif", 'Mukta Mahee'],
+          ['serif', 'System serif'],
+        ],
+        (v) => (S.font = v),
+      ),
+      'Only fonts installed on this device',
+    ),
+    srow(
+      'B',
+      'Weight',
+      sel(
+        String(S.weight),
+        [
+          ['400', 'Normal'],
+          ['600', 'Medium'],
+          ['700', 'Bold'],
+        ],
+        (v) => (S.weight = +v),
+      ),
+    ),
+    srow(
+      '≡',
+      'Alignment',
+      sel(
+        S.align,
+        [
+          ['center', 'Centre'],
+          ['start', 'Start'],
+          ['justify', 'Justify'],
+        ],
+        (v) => (S.align = v),
+      ),
+    ),
+  ]);
+
+  // ── 🎨 APPEARANCE & COLOURS ──────────────────────────────────
   const themes = el(
     'div',
     { class: 'row', style: 'justify-content:center;gap:.75rem;margin:.5rem 0' },
@@ -601,7 +656,6 @@ function buildSettings(view, rerender) {
       ),
     ),
   );
-  view.append(themes);
   const colours = el(
     'div',
     { class: 'card' },
@@ -621,8 +675,9 @@ function buildSettings(view, rerender) {
       ),
     ),
   );
-  view.append(colours);
-  view.append(
+  const appearance = el('div', {}, [
+    themes,
+    colours,
     el('button', {
       class: 'quiet small',
       text: '↺ Reset custom colours',
@@ -631,203 +686,100 @@ function buildSettings(view, rerender) {
         rerender();
       },
     }),
-  );
-
-  // ── Aa TYPOGRAPHY ──────────────────────────────────────
-  view.append(sh('Aa', 'Typography'));
-  view.append(
-    el('div', { class: 'card' }, [
-      el('p', {
-        class: 'text',
-        style: 'margin:.5rem 0;font-size:calc(var(--size)*.75)',
-        text: 'ੰ ਸ੍ਰੀ ਵਾਹਿਗੁਰੂ ਜੀ ਕੀ ਫਤਿਹ',
-      }),
-      srow('📐', 'Text size', num(() => S.size, (v) => (S.size = v), 1, 14, 72, (v) => v + ' px')),
-      srow(
-        '↕',
-        'Line spacing',
-        el('div', { class: 'row' }, [
-          num(() => S.lh, (v) => (S.lh = v), 0.1, 1, 4, (v) => v.toFixed(1)),
-          el(
-            'div',
-            { class: 'wpm-presets' },
-            [
-              ['Compact', 1.4],
-              ['Normal', 1.8],
-              ['Airy', 2.2],
-              ['Open', 2.8],
-            ].map(([t, v]) =>
-              el('button', {
-                text: t,
-                class: S.lh === v ? 'primary' : '',
-                onclick: () => {
-                  S.lh = v;
-                  rerender();
-                },
-              }),
-            ),
-          ),
-        ]),
-      ),
-      srow(
-        '🔤',
-        'Font',
-        sel(
-          S.font,
-          [
-            ["'Noto Sans Gurmukhi', 'Nirmala UI', sans-serif", 'Noto Sans Gurmukhi'],
-            ["'Nirmala UI', sans-serif", 'Nirmala UI'],
-            ["'Gurbani Akhar', 'Noto Sans Gurmukhi', sans-serif", 'Gurbani Akhar'],
-            ["'Mukta Mahee', sans-serif", 'Mukta Mahee'],
-            ['serif', 'System serif'],
-          ],
-          (v) => (S.font = v),
-        ),
-        'Only fonts installed on this device',
-      ),
-      srow(
-        'B',
-        'Weight',
-        sel(
-          String(S.weight),
-          [
-            ['400', 'Normal'],
-            ['600', 'Medium'],
-            ['700', 'Bold'],
-          ],
-          (v) => (S.weight = +v),
-        ),
-      ),
-      srow(
-        '≡',
-        'Alignment',
-        sel(
-          S.align,
-          [
-            ['center', 'Centre'],
-            ['start', 'Start'],
-            ['justify', 'Justify'],
-          ],
-          (v) => (S.align = v),
-        ),
-      ),
-    ]),
-  );
+  ]);
 
   // ── ⚡ SPEED & SCROLLING ──────────────────────────────
-  view.append(sh('⚡', 'Speed & Scrolling'));
-  view.append(
-    el('div', { class: 'card' }, [
-      el('p', {
-        class: 'small muted',
-        style: 'margin:.2rem 0 .5rem',
-        text: 'Speed is in words per minute — it auto-adjusts for font size so you always read the same number of words per minute, not pixels.',
-      }),
-      srow(
-        '⚡',
-        'Reading speed',
-        el('div', { class: 'row' }, [
-          el(
-            'div',
-            { class: 'wpm-presets' },
-            [
-              [40, 'Meditative'],
-              [70, 'Slow'],
-              [120, 'Normal'],
-              [180, 'Fast'],
-            ].map(([v, t]) =>
-              el('button', {
-                text: t + ' ' + v,
-                class: S.speed === v ? 'primary' : '',
-                onclick: () => {
-                  S.speed = v;
-                  rerender();
-                },
-              }),
-            ),
+  const speedScroll = el('div', { class: 'card' }, [
+    el('p', {
+      class: 'small muted',
+      style: 'margin:.2rem 0 .5rem',
+      text: 'Speed is in words per minute — it auto-adjusts for font size so you always read the same number of words per minute, not pixels.',
+    }),
+    srow(
+      '⚡',
+      'Reading speed',
+      el('div', { class: 'row' }, [
+        el(
+          'div',
+          { class: 'wpm-presets' },
+          [
+            [40, 'Meditative'],
+            [70, 'Slow'],
+            [120, 'Normal'],
+            [180, 'Fast'],
+          ].map(([v, t]) =>
+            el('button', {
+              text: t + ' ' + v,
+              class: S.speed === v ? 'primary' : '',
+              onclick: () => {
+                S.speed = v;
+                rerender();
+              },
+            }),
           ),
-          num(() => S.speed, (v) => (S.speed = v), 5, 20, 300, (v) => v + ' wpm'),
-        ]),
-      ),
-      srow(
-        '☀',
-        'Keep Screen Awake',
-        el('button', {
-          class: 'sw',
-          role: 'switch',
-          'aria-checked': String(!!S.keepAwake),
-          'aria-label': 'Keep screen awake',
-          onclick: (ev) => {
-            S.keepAwake = !S.keepAwake;
-            ev.currentTarget.setAttribute('aria-checked', String(S.keepAwake));
-            rerender();
-          },
-        }),
-        'Prevents screen dimming while reading',
-      ),
-    ]),
-  );
-
-  // ── 🚩 REVIEW FLAGS ─────────────────────────────────
-  // Notes a reader has left on specific lines while reading (see the 🚩
-  // button in the reader toolbar). These stay on this device only - export
-  // them and hand the text to whoever maintains the content.
-  view.append(sh('🚩', 'My Flags'));
-  view.append(buildFlagsCard(rerender));
-
-  // ── 🕘 CHANGELOG ───────────────────────────────────
-  view.append(sh('🕘', 'Changelog'));
-  view.append(buildChangelogCard());
-
-  // ── 💾 DATA ────────────────────────────────────────
-  view.append(sh('💾', 'Backup & Restore'));
-  view.append(
-    el('div', { class: 'card' }, [
-      el('p', {
-        class: 'small muted',
-        text: "Saves your settings, favourites, bookmarks, flags and reading positions to a file you can restore on any device. No Gurbani text is included — it's already in this file.",
-      }),
-      el('div', { class: 'row', style: 'margin-top:.5rem' }, [
-        el('button', { class: 'primary', text: '📤 Export', onclick: exportBackup }),
-        el('button', { text: '📥 Import', onclick: importBackup }),
-        el('div', { class: 'grow' }),
-        el('button', {
-          class: 'quiet',
-          text: '↺ Reset settings',
-          onclick: () => {
-            if (!confirm('Reset all settings to defaults? Your Pothis, bookmarks and flags are kept.')) return;
-            const keep = {
-              favourites: S.favourites,
-              pothis: S.pothis,
-              positions: S.positions,
-              bookmarks: S.bookmarks,
-              sehaj: S.sehaj,
-              flags: S.flags,
-            };
-            S = { ...DEFAULTS, ...keep };
-            rerender();
-          },
-        }),
+        ),
+        num(() => S.speed, (v) => (S.speed = v), 5, 20, 300, (v) => v + ' wpm'),
       ]),
-    ]),
-  );
+    ),
+    toggle('Auto-start on open', '▶', 'autoScrollOnOpen', 'Start auto-scroll immediately when a Bani opens or resumes'),
+    toggle('Keep Screen Awake', '☀', 'keepAwake', 'Prevents screen dimming while reading'),
+  ]);
 
   // ── ℹ ABOUT ───────────────────────────────────────────
-  view.append(sh('ℹ️', 'About'));
   const total = BANIS.reduce((n, b) => n + b.lines.length, 0);
-  view.append(
-    el('div', { class: 'card small muted' }, [
-      el('p', { text: 'Pothi Sahib — single-file build. ' + BANIS.length + ' Banian, ' + total + ' lines.' }),
-      el('p', { text: 'Built ' + new Date(DATA.builtAt).toLocaleString() + '.' }),
-      el('p', {
-        text:
-          'Text adopted from: ' +
-          [...new Set(BANIS.map((b) => b.source?.name).filter(Boolean))].join(', ') +
-          '. Where a Bani is marked PROVISIONAL, it has been adopted from a source and not yet reviewed line by line against printed editions — see Changelog above for what has already been checked.',
+  const about = el('div', { class: 'card small muted' }, [
+    el('p', { text: 'Pothi Sahib — single-file build. ' + BANIS.length + ' Banian, ' + total + ' lines.' }),
+    el('p', { text: 'Built ' + new Date(DATA.builtAt).toLocaleString() + '.' }),
+    el('p', {
+      text:
+        'Text adopted from: ' +
+        [...new Set(BANIS.map((b) => b.source?.name).filter(Boolean))].join(', ') +
+        '. Where a Bani is marked PROVISIONAL, it has been adopted from a source and not yet reviewed line by line against printed editions — see Changelog below for what has already been checked.',
+    }),
+    el('p', { text: [...new Set(BANIS.map((b) => b.source?.attribution).filter(Boolean))].join(' ') }),
+    el('p', { text: 'Nothing here is sent anywhere. No account, no analytics, no network requests.' }),
+  ]);
+
+  // ── 💾 BACKUP & RESTORE ────────────────────────────────
+  const backup = el('div', { class: 'card' }, [
+    el('p', {
+      class: 'small muted',
+      text: "Saves your settings, favourites, bookmarks, flags and reading positions to a file you can restore on any device. No Gurbani text is included — it's already in this file.",
+    }),
+    el('div', { class: 'row', style: 'margin-top:.5rem' }, [
+      el('button', { class: 'primary', text: '📤 Export', onclick: exportBackup }),
+      el('button', { text: '📥 Import', onclick: importBackup }),
+      el('div', { class: 'grow' }),
+      el('button', {
+        class: 'quiet',
+        text: '↺ Reset settings',
+        onclick: () => {
+          if (!confirm('Reset all settings to defaults? Your Pothis, bookmarks and flags are kept.')) return;
+          const keep = {
+            favourites: S.favourites,
+            pothis: S.pothis,
+            positions: S.positions,
+            bookmarks: S.bookmarks,
+            sehaj: S.sehaj,
+            flags: S.flags,
+          };
+          S = { ...DEFAULTS, ...keep };
+          rerender();
+        },
       }),
-      el('p', { text: [...new Set(BANIS.map((b) => b.source?.attribution).filter(Boolean))].join(' ') }),
-      el('p', { text: 'Nothing here is sent anywhere. No account, no analytics, no network requests.' }),
     ]),
+  ]);
+
+  view.append(
+    catDetails('set-typography', 'Aa', 'Typography', typography, true),
+    catDetails('set-behaviour', '🖐', 'Reading Behaviour', readingBehaviour, true),
+    catDetails('set-vishraam', '∼', 'Vishraam', vishraam, true),
+    catDetails('set-appearance', '🎨', 'Appearance & Colours', appearance, true),
+    catDetails('set-speed', '⚡', 'Speed & Scrolling', speedScroll, false),
+    catDetails('set-flags', '🚩', 'My Flags', buildFlagsCard(rerender), false),
+    catDetails('set-changelog', '🕘', 'Changelog', buildChangelogCard(), false),
+    catDetails('set-backup', '💾', 'Backup & Restore', backup, false),
+    catDetails('set-about', 'ℹ️', 'About', about, false),
   );
 }
 const currentVar = (name) => {
@@ -863,7 +815,7 @@ function buildChangelogCard() {
 function buildFlagsCard(rerender) {
   if (!S.flags.length)
     return el('div', { class: 'card small muted' }, [
-      el('p', { text: "No flags yet. While reading, use the 🚩 button (or press F) to flag the line you're on for review." }),
+      el('p', { text: "No flags yet. While reading, long-press (or right-click) a line and choose Add note, or press F for the line currently in view." }),
     ]);
   const list = el(
     'div',
@@ -1082,6 +1034,10 @@ function renderRead() {
     if (route.jump !== undefined) target = indexOfLine[route.jump];
     else if (S.positions[key]) target = indexOfLine[S.positions[key].i];
     if (target) target.scrollIntoView({ block: 'center' });
+    if (S.autoScrollOnOpen) {
+      // Let the jump above settle first, so auto-scroll doesn't fight it.
+      requestAnimationFrame(() => requestAnimationFrame(() => startScroll()));
+    }
   });
 
   // remember the topmost visible line, and track it for the flag button
@@ -1119,7 +1075,8 @@ function renderLine(line) {
   const slice = (a, b) => chars.slice(a, b).join('');
   (line.w.length ? line.w : [[0, chars.length]]).forEach(([s, e], idx) => {
     if (s > prev) nodes.push(el('span', { class: 'gap', text: slice(prev, s) }));
-    const kind = vish.get(idx);
+    let kind = vish.get(idx);
+    if (kind !== undefined && S.vishraamKinds[kind] === false) kind = undefined; // that severity is hidden
     nodes.push(
       el('span', {
         class: 'w' + (kind !== undefined ? ' v' + kind : ''),
@@ -1132,13 +1089,14 @@ function renderLine(line) {
   return nodes;
 }
 
-/** Prompt for a short note on the line currently at the top of the reader, and save it to S.flags. */
-function openFlagDialog() {
-  if (!currentLine) {
+/** Prompt for a short note on a line, and save it to S.flags. Defaults to the line currently at the top of the reader. */
+function openFlagDialog(lineInfo) {
+  const info = lineInfo || currentLine;
+  if (!info) {
     announce('No line in view to flag yet');
     return;
   }
-  const { bani, lineIndex, text } = currentLine;
+  const { bani, lineIndex, text } = info;
   const ta = el('textarea', {
     rows: '3',
     style: 'width:100%;font:inherit',
@@ -1178,6 +1136,225 @@ function openFlagDialog() {
   document.body.append(dlg);
   dlg.showModal();
   ta.focus();
+}
+
+/** Share a line's text via the OS share sheet, falling back to clipboard/alert. */
+async function shareLineAsText(info) {
+  const text = info.text + '\n— ' + info.bani.name + ' · Pothi Sahib';
+  if (navigator.share) {
+    try {
+      await navigator.share({ text });
+      return;
+    } catch {
+      return; // user cancelled the share sheet - not an error
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    announce('Copied to clipboard');
+  } catch {
+    alert(text);
+  }
+}
+
+/** Draw a line onto a bordered, themed canvas image for sharing. */
+function renderLineImage(info, orientation) {
+  const W = orientation === 'landscape' ? 1600 : 1080;
+  const H = orientation === 'landscape' ? 1000 : 1600;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  const bg = currentVar('--bg');
+  const fg = currentVar('--gurbani');
+  const accent = currentVar('--accent');
+
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // decorative double border with small corner accents
+  const margin = Math.round(W * 0.07);
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = Math.round(W * 0.006);
+  ctx.strokeRect(margin, margin, W - margin * 2, H - margin * 2);
+  const inner = margin + Math.round(W * 0.02);
+  ctx.lineWidth = Math.max(1, Math.round(W * 0.0015));
+  ctx.strokeRect(inner, inner, W - inner * 2, H - inner * 2);
+  const cornerR = Math.round(W * 0.014);
+  for (const [cx, cy] of [
+    [margin, margin],
+    [W - margin, margin],
+    [margin, H - margin],
+    [W - margin, H - margin],
+  ]) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(Math.PI / 4);
+    ctx.fillStyle = accent;
+    ctx.fillRect(-cornerR / 2, -cornerR / 2, cornerR, cornerR);
+    ctx.restore();
+  }
+
+  // main text: word-wrap, then shrink-to-fit the available box
+  const textAreaW = W - inner * 2 - Math.round(W * 0.08);
+  const textAreaH = H - inner * 2 - Math.round(H * 0.18);
+  const words = info.text.split(/\s+/).filter(Boolean);
+  let fontSize = Math.round(W * 0.09);
+  let lines, lineHeight;
+  do {
+    ctx.font = fontSize + 'px ' + S.font;
+    lineHeight = fontSize * 1.6;
+    lines = [];
+    let cur = '';
+    for (const w of words) {
+      const test = cur ? cur + ' ' + w : w;
+      if (cur && ctx.measureText(test).width > textAreaW) {
+        lines.push(cur);
+        cur = w;
+      } else {
+        cur = test;
+      }
+    }
+    if (cur) lines.push(cur);
+    fontSize -= 4;
+  } while (fontSize > 20 && (lines.length * lineHeight > textAreaH || lines.some((l) => ctx.measureText(l).width > textAreaW)));
+  ctx.font = fontSize + 'px ' + S.font;
+  ctx.fillStyle = fg;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const totalTextH = lines.length * lineHeight;
+  let y = H / 2 - totalTextH / 2 + lineHeight / 2 - Math.round(H * 0.03);
+  for (const l of lines) {
+    ctx.fillText(l, W / 2, y);
+    y += lineHeight;
+  }
+
+  // attribution
+  ctx.font = Math.round(W * 0.028) + 'px system-ui, sans-serif';
+  ctx.fillStyle = accent;
+  ctx.fillText(info.bani.name, W / 2, H - inner - Math.round(H * 0.05));
+  ctx.font = Math.round(W * 0.02) + 'px system-ui, sans-serif';
+  ctx.fillStyle = fg;
+  ctx.globalAlpha = 0.7;
+  ctx.fillText('Pothi Sahib', W / 2, H - inner - Math.round(H * 0.022));
+  ctx.globalAlpha = 1;
+  return canvas;
+}
+
+function openShareImageDialog(info) {
+  let orientation = 'portrait';
+  const img = document.createElement('img');
+  img.style.cssText = 'max-width:100%;border-radius:.4rem;margin:.5rem 0;';
+  const redraw = () => {
+    img.src = renderLineImage(info, orientation).toDataURL('image/png');
+  };
+  const portraitBtn = el('button', { class: 'primary', text: 'Portrait' });
+  const landscapeBtn = el('button', { text: 'Landscape' });
+  portraitBtn.addEventListener('click', () => {
+    orientation = 'portrait';
+    portraitBtn.className = 'primary';
+    landscapeBtn.className = '';
+    redraw();
+  });
+  landscapeBtn.addEventListener('click', () => {
+    orientation = 'landscape';
+    landscapeBtn.className = 'primary';
+    portraitBtn.className = '';
+    redraw();
+  });
+  const dlg = el('dialog', { class: 'settings-panel' }, [
+    el('div', { class: 'panel-head' }, [
+      el('strong', { text: 'Share as image' }),
+      el('div', { class: 'grow' }),
+      el('button', { class: 'quiet hit', text: '✕', 'aria-label': 'Close', onclick: () => dlg.close() }),
+    ]),
+    el('div', { class: 'panel-body small' }, [
+      el('div', { class: 'row' }, [portraitBtn, landscapeBtn]),
+      img,
+      el('div', { class: 'row', style: 'margin-top:.5rem' }, [
+        el('button', {
+          class: 'primary',
+          text: '⬇ Download',
+          onclick: () => {
+            renderLineImage(info, orientation).toBlob((blob) => {
+              const url = URL.createObjectURL(blob);
+              const a = el('a', { href: url, download: 'pothi-sahib-line.png' });
+              document.body.append(a);
+              a.click();
+              a.remove();
+              setTimeout(() => URL.revokeObjectURL(url), 1000);
+            });
+          },
+        }),
+        navigator.canShare
+          ? el('button', {
+              text: '📤 Share',
+              onclick: () => {
+                renderLineImage(info, orientation).toBlob(async (blob) => {
+                  const file = new File([blob], 'pothi-sahib-line.png', { type: 'image/png' });
+                  if (navigator.canShare({ files: [file] })) {
+                    try {
+                      await navigator.share({ files: [file], title: info.bani.name });
+                    } catch {}
+                  } else {
+                    announce('Sharing images is not supported on this device — use Download instead');
+                  }
+                });
+              },
+            })
+          : null,
+      ]),
+    ]),
+  ]);
+  redraw();
+  dlg.addEventListener('close', () => dlg.remove());
+  document.body.append(dlg);
+  dlg.showModal();
+}
+
+/** Menu shown on long-press (touch) or right-click (desktop) over a line. */
+function openLineActions(info) {
+  const dlg = el('dialog', { class: 'settings-panel' }, [
+    el('div', { class: 'panel-head' }, [
+      el('strong', { text: 'Line actions' }),
+      el('div', { class: 'grow' }),
+      el('button', { class: 'quiet hit', text: '✕', 'aria-label': 'Close', onclick: () => dlg.close() }),
+    ]),
+    el('div', { class: 'panel-body small' }, [
+      el('p', { class: 'muted', text: info.bani.name + ' · line ' + (info.lineIndex + 1) }),
+      el('p', { lang: 'pa', text: info.text }),
+      el('div', { class: 'row', style: 'flex-wrap:wrap;gap:.5rem' }, [
+        el('button', {
+          class: 'primary',
+          text: '📝 Add note',
+          onclick: () => {
+            dlg.close();
+            openFlagDialog(info);
+          },
+        }),
+        el('button', { text: '💬 Share as text', onclick: () => shareLineAsText(info) }),
+        el('button', {
+          text: '🖼 Share as image',
+          onclick: () => {
+            dlg.close();
+            openShareImageDialog(info);
+          },
+        }),
+      ]),
+    ]),
+  ]);
+  dlg.addEventListener('close', () => dlg.remove());
+  document.body.append(dlg);
+  dlg.showModal();
+}
+
+function lineInfoFromEvent(e) {
+  const p = e.target.closest('.line');
+  if (!p) return null;
+  const bani = BY_SLUG.get(p.dataset.slug);
+  const lineIndex = +p.dataset.i;
+  if (!bani) return null;
+  return { bani, lineIndex, text: bani.lines[lineIndex].t };
 }
 
 function readerBar() {
@@ -1232,7 +1409,7 @@ function readerBar() {
     // push utilities to far right
     el('div', { class: 'bar-grow' }),
     // utilities
-    el('button', { class: 'quiet hit', text: '🚩', 'aria-label': 'Flag current line for review', onclick: openFlagDialog }),
+    el('button', { class: 'quiet hit', text: '🚩', 'aria-label': 'Flag current line for review', onclick: () => openFlagDialog() }),
     el('button', {
       class: 'quiet hit',
       text: '⛶',
@@ -1395,6 +1572,34 @@ document.addEventListener(
   { passive: true },
 );
 
+// ── long-press (touch) / right-click (desktop) on a line = line actions menu ──
+let longPressTimer = null;
+let longPressFired = false;
+document.addEventListener(
+  'touchstart',
+  (e) => {
+    if (route.tab !== 'read') return;
+    const info = lineInfoFromEvent(e);
+    clearTimeout(longPressTimer);
+    if (!info) return;
+    longPressFired = false;
+    longPressTimer = setTimeout(() => {
+      longPressFired = true;
+      openLineActions(info);
+    }, 550);
+  },
+  { passive: true },
+);
+document.addEventListener('touchmove', () => clearTimeout(longPressTimer), { passive: true });
+document.addEventListener('touchend', () => clearTimeout(longPressTimer), { passive: true });
+document.addEventListener('contextmenu', (e) => {
+  if (route.tab !== 'read') return;
+  const info = lineInfoFromEvent(e);
+  if (!info) return;
+  e.preventDefault();
+  openLineActions(info);
+});
+
 // ── tap = scroll toggle; double-tap/click = hide/show bar ──
 function toggleBarVisibility() {
   barVisible = !barVisible;
@@ -1424,6 +1629,10 @@ document.addEventListener(
   'touchend',
   (e) => {
     if (route.tab !== 'read') return;
+    if (longPressFired) {
+      longPressFired = false;
+      return;
+    }
     if (e.target.closest('button, a, input, select, dialog, .bar, .bar-handle')) return;
     const now = Date.now();
     if (now - lastTapTs < 300) {
@@ -1444,12 +1653,12 @@ document.addEventListener('keydown', (e) => {
   } else if (e.key === '+' || e.key === '=' || e.key === 'ArrowRight') {
     S.speed = Math.min(300, S.speed + 5);
     save();
-    document.querySelectorAll('.wpm-badge').forEach((b) => (b.textContent = S.speed + ' wpm'));
+    document.querySelectorAll('.wpm-badge').forEach((b) => (b.textContent = S.speed + ' wpm'));
     announce(S.speed + ' words per minute');
   } else if (e.key === '-' || e.key === 'ArrowLeft') {
     S.speed = Math.max(20, S.speed - 5);
     save();
-    document.querySelectorAll('.wpm-badge').forEach((b) => (b.textContent = S.speed + ' wpm'));
+    document.querySelectorAll('.wpm-badge').forEach((b) => (b.textContent = S.speed + ' wpm'));
     announce(S.speed + ' words per minute');
   } else if (e.key.toLowerCase() === 'h') {
     toggleBarVisibility();
@@ -1503,7 +1712,7 @@ function showShortcuts() {
     el('div', { class: 'panel-body small' }, [
       el('p', { class: 'muted', text: 'These shortcuts work while a Bani is open.' }),
       tbl,
-      el('p', { class: 'muted', style: 'margin-top:.75rem', text: 'On touch: swipe right to go back to the home screen.' }),
+      el('p', { class: 'muted', style: 'margin-top:.75rem', text: 'On touch: swipe right to go back to the home screen. Long-press a line for note/share options.' }),
     ]),
   ]);
   dlg.addEventListener('close', () => dlg.remove());

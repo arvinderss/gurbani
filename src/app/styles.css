@@ -170,6 +170,33 @@
         font-size: 1.1rem;
         margin: 1.4rem 0 0.4rem;
       }
+      /* collapsible category sections (Home groups, Settings categories) */
+      details.cat {
+        margin: 0.4rem 0;
+      }
+      details.cat > summary {
+        cursor: pointer;
+        list-style: none;
+      }
+      details.cat > summary::-webkit-details-marker {
+        display: none;
+      }
+      details.cat > summary h2.section {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        margin: 1rem 0 0.4rem;
+      }
+      details.cat > summary h2.section::after {
+        content: '▸';
+        margin-left: auto;
+        font-size: 0.85rem;
+        color: var(--muted);
+        transition: transform 0.15s;
+      }
+      details.cat[open] > summary h2.section::after {
+        transform: rotate(90deg);
+      }
       /* switch */
       .sw {
         position: relative;
@@ -247,6 +274,11 @@
       .line {
         margin: 0.15em 0;
         scroll-margin-top: 4rem;
+        /* Long-press opens our own line-actions menu; suppress iOS's
+           native text-callout so the two don't fight each other. Text
+           stays selectable (no user-select:none) - only the popup menu
+           iOS shows on long-press is what's turned off. */
+        -webkit-touch-callout: none;
       }
       .line.bk {
         box-shadow: inset 0.3rem 0 0 var(--accent);

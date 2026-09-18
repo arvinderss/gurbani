@@ -161,6 +161,29 @@ const el = (tag, attrs = {}, kids = []) => {
   for (const kid of [].concat(kids)) if (kid) n.append(kid);
   return n;
 };
+/**
+ * The app's mark: a simple open book (an offline "Pothi" being read), no
+ * religious iconography - deliberate, given what the app displays. Uses
+ * currentColor so it re-themes with the rest of the UI; see .logo-mark in
+ * styles.css for sizing/colour, and the separate static favicon in
+ * head.html (which can't reach page CSS, so it hardcodes a colour).
+ */
+const logoMark = (className) =>
+  el('span', { class: 'logo-mark' + (className ? ' ' + className : ''), 'aria-hidden': 'true' }, [
+    (() => {
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('viewBox', '0 0 64 48');
+      svg.setAttribute('focusable', 'false');
+      const p1 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      p1.setAttribute('d', 'M2 5 L29 12 L29 43 L2 36 Z');
+      p1.setAttribute('fill', 'currentColor');
+      const p2 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      p2.setAttribute('d', 'M62 5 L35 12 L35 43 L62 36 Z');
+      p2.setAttribute('fill', 'currentColor');
+      svg.append(p1, p2);
+      return svg;
+    })(),
+  ]);
 const sw = (checked, onchange, label) =>
   el('button', {
     class: 'sw',
@@ -272,7 +295,7 @@ function renderHome() {
     },
   });
   const holder = el('div');
-  view.append(q, holder);
+  view.append(el('div', { class: 'home-hero' }, [logoMark('home-hero-logo')]), q, holder);
   renderContinueReading();
   draw('');
   renderCompletedBanis();
@@ -1769,8 +1792,11 @@ function readerBar() {
   });
   playBtn = play;
 
-  // ── bar: [← ⚙] [grow] [− ▶ + wpm] | [A− size A+] [grow] [🚩 ⛶ ? share] ──
+  // ── bar: [logo ← ⚙] [grow] [− ▶ + wpm] | [A− size A+] [grow] [🚩 ⛶ ? share] ──
   const barEl = el('div', { class: 'bar', role: 'toolbar', 'aria-label': 'Reader controls' }, [
+    // small brand mark - hidden automatically while fullscreen (see
+    // :fullscreen in styles.css), so it never becomes a reading distraction
+    logoMark('bar-logo'),
     // nav group
     el('button', { class: 'quiet hit', text: '←', 'aria-label': 'Back to home', onclick: () => go({ tab: 'home' }) }),
     el('button', { class: 'quiet hit', text: '⚙️', 'aria-label': 'Reading settings', onclick: openSettingsPanel }),

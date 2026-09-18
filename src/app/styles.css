@@ -91,6 +91,38 @@
         margin: 0;
         font-weight: 600;
       }
+      /* ── logo mark (open book) - see logoMark() in app.js ── */
+      .logo-mark {
+        display: inline-flex;
+        color: var(--accent);
+        flex: none;
+      }
+      .logo-mark svg {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+      .home-hero {
+        display: flex;
+        justify-content: center;
+        margin: 0.25rem 0 1.25rem;
+      }
+      .home-hero .logo-mark {
+        width: 4.5rem;
+        height: 3.4rem;
+      }
+      .bar-logo {
+        width: 1.15rem;
+        height: 0.86rem;
+        margin-right: 0.15rem;
+      }
+      /* No distractions while reading fullscreen - the brand mark hides
+         itself; :-webkit-full-screen covers older Safari/WebKit, which
+         requestFullscreen()'s own fallback above also targets. */
+      :fullscreen .bar-logo,
+      :-webkit-full-screen .bar-logo {
+        display: none;
+      }
       .grow {
         flex: 1;
       }

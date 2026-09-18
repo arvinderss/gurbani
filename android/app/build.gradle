@@ -1,4 +1,7 @@
-def keystoreConfigured = System.getenv('ANDROID_KEYSTORE_B64') != null
+def keystoreConfigured = { ->
+    def v = System.getenv('ANDROID_KEYSTORE_B64')
+    v != null && !v.isEmpty()
+}()
 
 apply plugin: 'com.android.application'
 

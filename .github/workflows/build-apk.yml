@@ -37,7 +37,6 @@ jobs:
           build-tools-version: 34.0.0
 
       - name: Write release signing key
-        if: ${{ secrets.ANDROID_KEYSTORE_B64 != '' }}
         run: echo "$ANDROID_KEYSTORE_B64" | base64 -d > android/keystore-release.jks
         env:
           ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}

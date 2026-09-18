@@ -54,8 +54,15 @@ shows exactly what changed in that Bani and when.
    downloads the corrected JSON file and appends an entry to that Bani's
    `history` (visible in-app under Settings → Changelog).
 5. Move the downloaded file into `src/content/<granth>/`, replacing the
-   old one.
-6. Rebuild the distributable app (below).
+   old one. If you'd rather hand-edit a content file directly in a text
+   editor instead of using the editor tool, open
+   **[`tools/check.html`](tools/check.html)** afterwards and select the
+   file(s) you touched — it validates JSON syntax and content correctness
+   in isolation (no need to gather the whole project first) and tells you
+   immediately whether the file will load correctly in the app.
+6. Rebuild the distributable app (below) — this validates everything
+   together (including things a lone-file check can't catch, like a
+   section index that doesn't exist).
 7. Commit the change: `git add -A && git commit -m "..."`. The diff will
    show exactly the lines you touched.
 
@@ -105,6 +112,8 @@ tools/
   build.html, build-lib.js    ← the build tool (no install needed)
   build-node.js                ← optional Node.js shortcut for the same build
   editor.html                  ← the content editor (no install needed)
+  check.html                    ← standalone JSON/content checker for one file at a time (no install needed)
+  inline-build-lib.js           ← maintenance script: re-embeds build-lib.js into the three tools above
 ```
 
 ### Large Banis: chunked (composite) content files

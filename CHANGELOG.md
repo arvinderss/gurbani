@@ -5,6 +5,55 @@ Changes to specific Gurbani **text** are tracked per-Bani in each content
 file's own `history` array, and surfaced in-app under Settings →
 Changelog.
 
+## 2026-09-18 — Security/UX audit pass
+
+A full review against code readability, security-by-design, data/workflow
+integrity, and UX. Findings and fixes:
+
+- Removed an unused `html:` attribute from the `el()` DOM helper in
+  app.js - it set `innerHTML` and was never actually called anywhere, so
+  it was a dead XSS footgun rather than a real feature.
+- `showShortcuts()` built a table row via `innerHTML` template
+  interpolation (safe today, since its data is a hardcoded array, but a
+  bad pattern to leave in place); switched to `textContent`.
+- `validateBani` didn't require a `source` field, but the app dereferences
+  `b.source.name`/`b.source.attribution` unconditionally on the About
+  page - a content file missing `source` would build cleanly and then
+  crash that page at runtime. Added it to the required-fields check, and
+  made the two read sites optional-chain as defense in depth regardless.
+- Two content files silently claiming the same `slug` would previously
+  just have the later one win the in-memory map with no warning. Added
+  `registerBani()` to build-lib.js (used by both build.html and
+  build-node.js) so this is now a reported build error instead.
+- build-node.js didn't check that a single-file Bani's filename matched
+  its own `slug` field (build.html already did) - added it, for parity.
+- `tools/build.html` and `tools/editor.html` had no Content-Security-Policy
+  at all, unlike the main app. Added a matching strict CSP to both (and
+  the new `tools/check.html`). Since CSP's `'self'` source is unreliable
+  for `file://` origins in Chromium, `build-lib.js` is now inlined
+  directly into all three tool pages instead of loaded via `<script src>`
+  - as a bonus this also makes each tool page fully self-contained.
+  `tools/inline-build-lib.js` keeps them in sync with `build-lib.js`,
+  the single source of truth.
+- The Home screen's full-text search re-scanned all 137k+ lines on every
+  keystroke with no debounce. Added a 150ms debounce.
+- `importBackup()` merged an imported backup's `settings` object directly
+  into app state with no shape check - a hand-edited or corrupted backup
+  file could hand a wrong-typed value to code downstream that assumes a
+  particular shape. Added `sanitizeSettings()`, which keeps only fields
+  whose type matches `DEFAULTS`.
+- Added `tools/check.html`: a standalone JSON/content checker for a
+  single Bani, chunk file, `_meta.json`, or `manifest.json`, so a
+  hand-edited file can be verified in isolation without gathering the
+  whole project first.
+
+Confirmed by this review and worth stating plainly: the app makes zero
+network calls (nothing to intercept), stores nothing outside
+`localStorage` under one key, and Gurbani/bani text is only ever inserted
+via `textContent` (never `innerHTML`) - so even a corrupted or malicious
+content file could not achieve script execution, only visibly wrong text
+or a build-time validation failure.
+
 ## 2026-09-18 — Complete Sri Guru Granth Sahib Ji and Sri Dasam Granth Sahib
 
 - Added the complete text of both scriptures as two new Banis: **60,555

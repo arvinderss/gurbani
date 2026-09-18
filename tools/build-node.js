@@ -53,17 +53,23 @@ for (const granth of manifest.granths) {
   }
   for (const entry of fs.readdirSync(dir)) {
     const entryPath = path.join(dir, entry);
-    let bani;
+    let bani, where;
     if (fs.statSync(entryPath).isDirectory()) {
       bani = loadComposite(entryPath);
+      where = `${granth.slug}/${entry}/`;
     } else if (entry.endsWith('.json')) {
       bani = readJson(entryPath);
+      where = `${granth.slug}/${entry}`;
+      const slugFromFile = entry.slice(0, -5);
+      if (bani.slug !== slugFromFile) {
+        problems.push(`${where}: file name "${entry}" does not match its "slug" field ("${bani.slug}").`);
+      }
     } else {
       continue;
     }
     const fileProblems = PothiBuild.validateBani(bani, granth.slug);
     problems.push(...fileProblems);
-    baniBySlug.set(bani.slug, bani);
+    PothiBuild.registerBani(baniBySlug, problems, bani, where);
   }
 }
 problems.push(...PothiBuild.validateManifest(manifest, baniBySlug));

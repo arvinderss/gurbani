@@ -32,6 +32,39 @@
   }
 
   /**
+   * Validate a bare lines array - the checks that make sense even without
+   * full Bani context (no slug/sections needed), so a single chunk file
+   * (see README "Large Banis") can be checked in isolation. `sectionCount`
+   * is optional; when given, out-of-range section indices are also caught.
+   */
+  function validateLines(lines, where, sectionCount) {
+    const problems = [];
+    if (!Array.isArray(lines) || lines.length === 0) {
+      problems.push(`${where}: "lines" must be a non-empty array.`);
+      return problems;
+    }
+    lines.forEach((line, i) => {
+      if (typeof line.t !== 'string' || line.t.trim() === '') {
+        problems.push(`${where} line ${i}: empty or missing text.`);
+        return;
+      }
+      const words = deriveWords(line.t);
+      if (sectionCount !== undefined && line.s !== undefined && (line.s < 0 || line.s >= sectionCount)) {
+        problems.push(`${where} line ${i}: section index ${line.s} has no matching entry in "sections".`);
+      }
+      if (line.v) {
+        for (const [wordIdx, kind] of line.v) {
+          if (wordIdx < 0 || wordIdx >= words.length)
+            problems.push(`${where} line ${i}: vishraam word index ${wordIdx} is out of range (line has ${words.length} words).`);
+          if (![0, 1, 2].includes(kind))
+            problems.push(`${where} line ${i}: vishraam kind ${kind} is not one of 0, 1, 2.`);
+        }
+      }
+    });
+    return problems;
+  }
+
+  /**
    * Validate one Bani's source file. Returns a list of human-readable
    * problem strings; an empty list means the file is safe to build.
    */
@@ -39,7 +72,7 @@
     const problems = [];
     const where = bani && bani.slug ? bani.slug : '(unknown slug)';
     if (!bani || typeof bani !== 'object') return ['Not a JSON object.'];
-    for (const key of ['slug', 'name', 'granthSlug', 'state', 'lines']) {
+    for (const key of ['slug', 'name', 'granthSlug', 'state', 'source', 'lines']) {
       if (!(key in bani)) problems.push(`${where}: missing required field "${key}".`);
     }
     if (folderGranthSlug && bani.granthSlug && bani.granthSlug !== folderGranthSlug) {
@@ -52,28 +85,27 @@
       return problems;
     }
     const sectionCount = Array.isArray(bani.sections) ? bani.sections.length : 0;
-    bani.lines.forEach((line, i) => {
-      if (typeof line.t !== 'string' || line.t.trim() === '') {
-        problems.push(`${where} line ${i}: empty or missing text.`);
-        return;
-      }
-      const words = deriveWords(line.t);
-      if (line.s !== undefined && (line.s < 0 || line.s >= sectionCount)) {
-        problems.push(`${where} line ${i}: section index ${line.s} has no matching entry in "sections".`);
-      }
-      if (line.v) {
-        for (const [wordIdx, kind] of line.v) {
-          if (wordIdx < 0 || wordIdx >= words.length)
-            problems.push(`${where} line ${i}: vishraam word index ${wordIdx} is out of range (line has ${words.length} words).`);
-          if (![0, 1, 2].includes(kind))
-            problems.push(`${where} line ${i}: vishraam kind ${kind} is not one of 0, 1, 2.`);
-        }
-      }
-    });
+    problems.push(...validateLines(bani.lines, where, sectionCount));
     if (!Array.isArray(bani.history) || bani.history.length === 0) {
       problems.push(`${where}: "history" should have at least one entry (e.g. the import record).`);
     }
     return problems;
+  }
+
+  /**
+   * Add a parsed Bani into the slug -> Bani map, flagging (into `problems`)
+   * a second file that claims a slug already used by an earlier one rather
+   * than letting it silently overwrite - two content files that disagree
+   * about a slug is exactly the kind of thing this should catch, not
+   * resolve by "whichever the filesystem happened to read last wins".
+   */
+  function registerBani(baniBySlug, problems, bani, where) {
+    if (!bani || !bani.slug) return;
+    if (baniBySlug.has(bani.slug)) {
+      problems.push(`${where}: slug "${bani.slug}" is already used by another content file - each Bani needs a unique slug.`);
+      return;
+    }
+    baniBySlug.set(bani.slug, bani);
   }
 
   /** Validate the manifest against the set of Bani files actually present. */
@@ -168,7 +200,7 @@
     ].join('\n');
   }
 
-  const PothiBuild = { deriveWords, validateBani, validateManifest, buildKoshData, assembleHtml };
+  const PothiBuild = { deriveWords, validateLines, validateBani, validateManifest, registerBani, buildKoshData, assembleHtml };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = PothiBuild;
   else root.PothiBuild = PothiBuild;

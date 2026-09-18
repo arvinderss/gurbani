@@ -128,7 +128,6 @@ const el = (tag, attrs = {}, kids = []) => {
   for (const [k, v] of Object.entries(attrs)) {
     if (k === 'class') n.className = v;
     else if (k === 'text') n.textContent = v;
-    else if (k === 'html') n.innerHTML = v;
     else if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
     else if (v !== null && v !== false && v !== undefined) n.setAttribute(k, v === true ? '' : v);
   }
@@ -205,12 +204,19 @@ function searchLines(query, limit = 40) {
 
 function renderHome() {
   titleEl.textContent = 'Pothi Sahib';
+  // Full-text search scans all 137k+ lines; debounced so fast typing
+  // doesn't trigger a scan per keystroke.
+  let searchTimer = null;
   const q = el('input', {
     type: 'search',
     placeholder: 'Filter Banian, or search the text…',
     'aria-label': 'Filter Banian or search the text',
     style: 'width:100%;margin-bottom:.75rem',
-    oninput: (e) => draw(e.target.value.trim().toLowerCase()),
+    oninput: (e) => {
+      const value = e.target.value.trim().toLowerCase();
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => draw(value), 150);
+    },
   });
   const holder = el('div');
   view.append(q, holder);
@@ -816,10 +822,10 @@ function buildSettings(view, rerender) {
       el('p', {
         text:
           'Text adopted from: ' +
-          [...new Set(BANIS.map((b) => b.source.name).filter(Boolean))].join(', ') +
+          [...new Set(BANIS.map((b) => b.source?.name).filter(Boolean))].join(', ') +
           '. Where a Bani is marked PROVISIONAL, it has been adopted from a source and not yet reviewed line by line against printed editions — see Changelog above for what has already been checked.',
       }),
-      el('p', { text: [...new Set(BANIS.map((b) => b.source.attribution).filter(Boolean))].join(' ') }),
+      el('p', { text: [...new Set(BANIS.map((b) => b.source?.attribution).filter(Boolean))].join(' ') }),
       el('p', { text: 'Nothing here is sent anywhere. No account, no analytics, no network requests.' }),
     ]),
   );
@@ -921,6 +927,25 @@ function exportBackup() {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+/**
+ * Keep only fields whose type matches the corresponding DEFAULTS entry, so
+ * a hand-edited or corrupted backup file can't hand a wrong-shaped value
+ * (a string where a number/array/object is expected) to code downstream
+ * that assumes the shape - it just falls back to the default for that
+ * field instead of restoring it.
+ */
+function sanitizeSettings(obj) {
+  const out = {};
+  if (!obj || typeof obj !== 'object') return out;
+  for (const key of Object.keys(DEFAULTS)) {
+    if (!(key in obj)) continue;
+    const def = DEFAULTS[key];
+    const val = obj[key];
+    const sameShape = Array.isArray(def) ? Array.isArray(val) : typeof val === typeof def && (typeof def !== 'object' || def === null || !Array.isArray(val));
+    if (sameShape) out[key] = val;
+  }
+  return out;
+}
 function importBackup() {
   const input = el('input', { type: 'file', accept: 'application/json,.json' });
   input.addEventListener('change', async () => {
@@ -929,7 +954,7 @@ function importBackup() {
     try {
       const parsed = JSON.parse(await file.text());
       if (parsed.format !== 'pothi-sahib-backup/1') throw new Error('not a Pothi Sahib backup');
-      S = { ...DEFAULTS, ...parsed.settings };
+      S = { ...DEFAULTS, ...sanitizeSettings(parsed.settings) };
       save();
       render();
       alert('Restored.');
@@ -1456,7 +1481,14 @@ function showShortcuts() {
   const tbody = document.createElement('tbody');
   rows.forEach(([k, desc]) => {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td><kbd class="kbd">${k}</kbd></td><td>${desc}</td>`;
+    const tdKey = document.createElement('td');
+    const kbd = document.createElement('kbd');
+    kbd.className = 'kbd';
+    kbd.textContent = k;
+    tdKey.append(kbd);
+    const tdDesc = document.createElement('td');
+    tdDesc.textContent = desc;
+    tr.append(tdKey, tdDesc);
     tbody.append(tr);
   });
   const tbl = document.createElement('table');

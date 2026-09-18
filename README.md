@@ -12,6 +12,9 @@ the whole app. Copy it to a phone, email it to yourself, put it on a USB
 stick — it doesn't need this repository, a server, or an internet
 connection to run.
 
+There's also a hosted copy, rebuilt from `main` on every push:
+**[read it live at arvinderss.github.io/gurbani](https://arvinderss.github.io/gurbani/)**.
+
 Everything else in this repository exists so that the Gurbani **text**
 underneath that file can be corrected and audited over time without
 wrestling with the file itself.

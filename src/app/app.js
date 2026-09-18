@@ -36,12 +36,11 @@ const DEFAULTS = {
   colors: {},
   favourites: [],
   pothis: [],
-  positions: {},
   bookmarks: {},
   sehaj: {},
   flags: [], // reader-added "please review this line" notes; see § flags
-  bookmarkArchive: [], // { slug, pos, removedAt } - entries removed from Continue Reading, newest last
-  archiveSize: 15, // how many removed entries to keep, user-adjustable 3-30
+  baniLog: [], // { slug, start, end, stage, i } - one row per reading arc, all derived views read this; see § bani log
+  sampuranWindowDays: 90, // how many days a completed Bani stays in the Completed list, 30/60/90/180/365
   openCats: {}, // which collapsible <details> categories the user has toggled, by id
 };
 const KEY = 'pothi-sahib-standalone';
@@ -92,12 +91,27 @@ function timeAgo(ts) {
   return 'a while ago';
 }
 
+/**
+ * The single most recent baniLog row for a slug, or null. Every derived
+ * view (Continue Reading, Completed, Archive, "is this unread") is just
+ * this one query filtered/grouped by .stage - see the § bani log note in
+ * renderRead. A row is reused across sessions until it's completed, so
+ * there's normally at most a handful of rows per Bani, not one per open.
+ */
+function latestEntryFor(slug) {
+  let latest = null;
+  for (const e of S.baniLog) {
+    if (e.slug === slug && (!latest || e.start >= latest.start)) latest = e;
+  }
+  return latest;
+}
+
 /** Reading progress % for a Bani slug, or null if never opened. */
 function progressFor(slug) {
-  const pos = S.positions[slug];
+  const entry = latestEntryFor(slug);
   const bani = BY_SLUG.get(slug);
-  if (!pos || !bani) return null;
-  return Math.round((pos.i / Math.max(1, bani.lines.length - 1)) * 100);
+  if (!entry || !bani) return null;
+  return Math.round((entry.i / Math.max(1, bani.lines.length - 1)) * 100);
 }
 
 const COLOR_VARS = [
@@ -259,90 +273,130 @@ function renderHome() {
   view.append(q, holder);
   renderContinueReading();
   draw('');
+  renderCompletedBanis();
   renderBookmarksArchive();
-  /** Archive a removed Continue Reading entry so it can be restored, keeping only the last S.archiveSize. */
-  function archivePosition(slug, pos) {
-    S.bookmarkArchive.push({ slug, pos, removedAt: Date.now() });
-    if (S.bookmarkArchive.length > S.archiveSize) S.bookmarkArchive = S.bookmarkArchive.slice(-S.archiveSize);
+
+  /**
+   * All three sections below are pure queries over S.baniLog, filtered by
+   * each slug's *latest* row's .stage - there is no separate stored list
+   * for any of them. See progressFor()/latestEntryFor() and the § bani log
+   * note in renderRead() for how rows are created/reused/transitioned.
+   */
+  function renderCompletedBanis() {
+    const old = view.querySelector('.completed-banis');
+    if (old) old.remove();
+    const windowMs = S.sampuranWindowDays * 86400000;
+    const now = Date.now();
+    const completed = [];
+    for (const b of BANIS) {
+      const entry = latestEntryFor(b.slug);
+      if (entry && entry.stage === 'completed' && now - entry.end <= windowMs) completed.push([b, entry]);
+    }
+    completed.sort((a, c) => c[1].end - a[1].end);
+    const windowSelect = el('div', { class: 'row', style: 'gap:.5rem;align-items:center;margin-bottom:.5rem' }, [
+      el('span', { class: 'small muted', text: 'Show completed in the last' }),
+      el(
+        'select',
+        {
+          onchange: (e) => {
+            S.sampuranWindowDays = +e.target.value;
+            save();
+            renderCompletedBanis();
+          },
+        },
+        [30, 60, 90, 180, 365].map((d) => el('option', { value: String(d), text: d + ' days', selected: d === S.sampuranWindowDays })),
+      ),
+    ]);
+    const rows = completed.length
+      ? completed.map(([b, entry]) =>
+          el('div', { class: 'row', style: 'margin: 0.5rem 0' }, [
+            el('div', { style: 'flex:1' }, [
+              el('div', { text: b.name }),
+              el('div', { class: 'small muted', text: 'ਸੰਪੂਰਨ · completed ' + timeAgo(entry.end) }),
+            ]),
+            el('button', {
+              class: 'quiet small',
+              text: 'Remove',
+              'aria-label': 'Remove ' + b.name + ' from Completed',
+              onclick: () => {
+                entry.stage = 'archived';
+                save();
+                renderCompletedBanis();
+                renderBookmarksArchive();
+              },
+            }),
+          ]),
+        )
+      : [el('p', { class: 'small muted', text: 'Nothing completed yet — mark a Bani ਸੰਪੂਰਨ (complete) while reading and it shows up here.' })];
+    const section = el('div', { class: 'completed-banis' }, [
+      catDetails('home-completed', '🙏', 'ਸੰਪੂਰਨ ਬਾਣੀਆਂ · Completed', [windowSelect, el('div', { class: 'card' }, rows)], false),
+    ]);
+    view.append(section);
   }
+
   function renderBookmarksArchive() {
     const old = view.querySelector('.bookmarks-archive');
     if (old) old.remove();
-    const stepper = el('div', { class: 'row', style: 'gap:.5rem;align-items:center;margin-bottom:.5rem' }, [
-      el('span', { class: 'small muted', text: 'Keep last' }),
-      el('input', {
-        type: 'number',
-        min: '3',
-        max: '30',
-        value: String(S.archiveSize),
-        style: 'width:4.5rem',
-        onchange: (e) => {
-          const n = Math.min(30, Math.max(3, Math.round(+e.target.value) || DEFAULTS.archiveSize));
-          S.archiveSize = n;
-          if (S.bookmarkArchive.length > n) S.bookmarkArchive = S.bookmarkArchive.slice(-n);
-          save();
-          renderBookmarksArchive();
-        },
-      }),
-      el('span', { class: 'small muted', text: 'removed entries (3–30)' }),
-    ]);
-    const entries = S.bookmarkArchive.filter((entry) => BY_SLUG.has(entry.slug));
-    const rows = entries.length
-      ? entries
-          .slice()
-          .reverse()
-          .map((entry) => {
-            const bani = BY_SLUG.get(entry.slug);
-            const pct = Math.round((entry.pos.i / Math.max(1, bani.lines.length - 1)) * 100);
-            return el('div', { class: 'row', style: 'margin: 0.5rem 0' }, [
-              el('div', { style: 'flex:1' }, [
-                el('div', { text: bani.name }),
-                el('div', { class: 'small muted', text: pct + '% · removed ' + timeAgo(entry.removedAt) }),
-              ]),
-              el('button', {
-                class: 'primary small',
-                text: 'Restore',
-                onclick: () => {
-                  S.positions[entry.slug] = entry.pos;
-                  S.bookmarkArchive = S.bookmarkArchive.filter((x) => x !== entry);
-                  save();
-                  renderContinueReading();
-                  renderBookmarksArchive();
-                },
-              }),
-            ]);
-          })
-      : [el('p', { class: 'small muted', text: 'Nothing archived yet — entries you remove from Continue Reading appear here.' })];
-    const section = el('div', { class: 'bookmarks-archive' }, [catDetails('home-archive', '🗄', 'Bookmarks Archive', [stepper, el('div', { class: 'card' }, rows)], false)]);
+    const archived = [];
+    for (const b of BANIS) {
+      const entry = latestEntryFor(b.slug);
+      if (entry && entry.stage === 'archived') archived.push([b, entry]);
+    }
+    archived.sort((a, c) => c[1].end - a[1].end);
+    const rows = archived.length
+      ? archived.map(([b, entry]) => {
+          const pct = Math.round((entry.i / Math.max(1, b.lines.length - 1)) * 100);
+          return el('div', { class: 'row', style: 'margin: 0.5rem 0' }, [
+            el('div', { style: 'flex:1' }, [
+              el('div', { text: b.name }),
+              el('div', { class: 'small muted', text: pct + '% · removed ' + timeAgo(entry.end) }),
+            ]),
+            el('button', {
+              class: 'primary small',
+              text: 'Restore',
+              onclick: () => {
+                entry.stage = 'progress';
+                save();
+                renderContinueReading();
+                renderCompletedBanis();
+                renderBookmarksArchive();
+              },
+            }),
+          ]);
+        })
+      : [el('p', { class: 'small muted', text: 'Nothing archived yet — entries you remove from Continue Reading or Completed appear here.' })];
+    const section = el('div', { class: 'bookmarks-archive' }, [catDetails('home-archive', '🗄', 'Bookmarks Archive', el('div', { class: 'card' }, rows), false)]);
     view.append(section);
   }
+
   function renderContinueReading() {
-    const inProgress = Object.entries(S.positions)
-      .filter(([k]) => BY_SLUG.has(k))
-      .sort((a, b) => b[1].at - a[1].at);
+    const inProgress = [];
+    for (const b of BANIS) {
+      const entry = latestEntryFor(b.slug);
+      if (entry && entry.stage === 'progress') inProgress.push([b, entry]);
+    }
+    inProgress.sort((a, c) => c[1].end - a[1].end);
     const old = view.querySelector('.continue-reading');
     if (old) old.remove();
     if (!inProgress.length) return;
-    const rows = inProgress.map(([slug, pos]) => {
-      const bani = BY_SLUG.get(slug);
-      const pct = progressFor(slug);
+    const rows = inProgress.map(([bani, entry]) => {
+      const pct = progressFor(bani.slug);
       return el('div', { class: 'row', style: 'margin: 0.5rem 0' }, [
         el(
           'button',
           {
             class: 'quiet',
             style: 'text-align:left;flex:1',
-            onclick: () => go({ tab: 'read', slugs: [slug], key: slug, title: bani.name }),
+            onclick: () => go({ tab: 'read', slugs: [bani.slug], key: bani.slug, title: bani.name }),
           },
-          [el('div', { text: bani.name }), el('div', { class: 'small muted', text: pct + '% · ' + timeAgo(pos.at) })],
+          [el('div', { text: bani.name }), el('div', { class: 'small muted', text: pct + '% · ' + timeAgo(entry.end) })],
         ),
         el('button', {
           class: 'quiet hit',
           text: '✕',
           'aria-label': 'Remove ' + bani.name + ' from Continue Reading',
           onclick: () => {
-            archivePosition(slug, pos);
-            delete S.positions[slug];
+            entry.stage = 'archived';
             save();
             renderContinueReading();
             renderBookmarksArchive();
@@ -815,14 +869,14 @@ function buildSettings(view, rerender) {
         class: 'quiet',
         text: '↺ Reset settings',
         onclick: () => {
-          if (!confirm('Reset all settings to defaults? Your Pothis, bookmarks and flags are kept.')) return;
+          if (!confirm('Reset all settings to defaults? Your Pothis, bookmarks, flags and reading history are kept.')) return;
           const keep = {
             favourites: S.favourites,
             pothis: S.pothis,
-            positions: S.positions,
             bookmarks: S.bookmarks,
             sehaj: S.sehaj,
             flags: S.flags,
+            baniLog: S.baniLog,
           };
           S = { ...DEFAULTS, ...keep };
           rerender();
@@ -1015,7 +1069,25 @@ function renderRead() {
   const wrap = el('div', { class: 'text', lang: 'pa' });
   let globalIndex = 0;
   const indexOfLine = [];
+  // § bani log: one row per Bani per reading arc (a combined Nitnem read
+  // tracks each constituent Bani separately, since completion is per-Bani).
+  // A row is *reused* across multiple day-to-day sessions of the same
+  // unfinished read (only a prior 'completed' row causes a fresh one to
+  // start) - see latestEntryFor(). Kept as live object references so the
+  // observer below updates .i/.end/.stage in place, no re-searching.
+  const sessionLog = new Map(); // slug -> the live baniLog row for this session
+  const resumeBySlug = new Map(); // slug -> { i, end } as it was BEFORE this session touched it
+  const lastLineEl = new Map(); // Bani slug -> its last <p>, to detect "reached the end"
   for (const b of list) {
+    let entry = latestEntryFor(b.slug);
+    if (entry && entry.stage !== 'completed') {
+      resumeBySlug.set(b.slug, { i: entry.i, end: entry.end });
+      entry.stage = 'progress'; // reactivate if it had been archived
+    } else {
+      entry = { slug: b.slug, start: Date.now(), end: Date.now(), stage: 'progress', i: 0 };
+      S.baniLog.push(entry);
+    }
+    sessionLog.set(b.slug, entry);
     if (list.length > 1 && !S.continuous) wrap.append(el('h2', { class: 'bani-title', text: b.name }));
     if (!S.continuous) {
       // Provisional/attribution status intentionally isn't shown here -
@@ -1070,8 +1142,20 @@ function renderRead() {
       p.append(...renderLine(line));
       (S.paragraph ? para : wrap).append(p);
       indexOfLine.push(p);
+      lastLineEl.set(b.slug, p);
       globalIndex++;
     });
+    if (!S.continuous) {
+      wrap.append(
+        el('div', { class: 'row', style: 'justify-content:center;margin:1rem 0' }, [
+          el('button', {
+            class: 'quiet sampuran-btn',
+            text: '🙏 ਸੰਪੂਰਨ · Mark complete',
+            onclick: () => markSampuran(b, sessionLog),
+          }),
+        ]),
+      );
+    }
   }
   // Progress bar
   const prog = el('div', {
@@ -1088,12 +1172,19 @@ function renderRead() {
   view.append(wrap, readerBar());
   view.style.paddingBottom = '0'; // body padding-bottom clears fixed bar
 
-  // restore position, or jump to a searched line
-  const key = route.key;
+  // Restore position: jump to a searched line, or to wherever the most
+  // recently active Bani in this session (by prior .end) had reached -
+  // for a combined multi-Bani read (e.g. Nitnem) this picks one Bani's
+  // line, not a separately-tracked "combined session" position.
   requestAnimationFrame(() => {
     let target = null;
-    if (route.jump !== undefined) target = indexOfLine[route.jump];
-    else if (S.positions[key]) target = indexOfLine[S.positions[key].i];
+    if (route.jump !== undefined) {
+      target = indexOfLine[route.jump];
+    } else {
+      let best = null;
+      for (const [slug, r] of resumeBySlug) if (!best || r.end > best.end) best = { slug, i: r.i, end: r.end };
+      if (best) target = indexOfLine.find((p) => p.dataset.slug === best.slug && +p.dataset.i === best.i);
+    }
     if (target) target.scrollIntoView({ block: 'center' });
     if (S.autoScrollOnOpen) {
       // Let the jump above settle first, so auto-scroll doesn't fight it.
@@ -1101,21 +1192,38 @@ function renderRead() {
     }
   });
 
-  // remember the topmost visible line, and track it for the flag button
+  // Track the topmost visible line (for the flag button, progress bar, and
+  // this session's baniLog row), and separately check every intersecting
+  // line for "has this Bani's last line now been visible" - reciting
+  // Gurbani from memory while following/auto-scrolling is completely
+  // normal, so reaching the end auto-completes (Sampuran) the same as the
+  // button would, not just an explicit tap.
   const io = new IntersectionObserver(
-    (entries) => {
-      const top = entries.filter((e) => e.isIntersecting).sort((a, b2) => a.boundingClientRect.top - b2.boundingClientRect.top)[0];
-      if (!top) return;
-      const i = indexOfLine.indexOf(top.target);
-      S.positions[key] = { i, at: Date.now() };
-      if (route.slugs.length === 1) S.positions[route.slugs[0]] = { i: +top.target.dataset.i, at: Date.now() };
-      const bani = BY_SLUG.get(top.target.dataset.slug);
-      const lineIndex = +top.target.dataset.i;
-      currentLine = bani ? { bani, lineIndex, text: bani.lines[lineIndex].t } : null;
-      // update progress bar
-      const pct = Math.round((i / Math.max(1, indexOfLine.length - 1)) * 100);
-      prog.style.width = pct + '%';
-      prog.setAttribute('aria-valuenow', String(pct));
+    (obsEntries) => {
+      const intersecting = obsEntries.filter((e) => e.isIntersecting);
+      const top = intersecting.sort((a, b2) => a.boundingClientRect.top - b2.boundingClientRect.top)[0];
+      if (top) {
+        const i = indexOfLine.indexOf(top.target);
+        const slug = top.target.dataset.slug;
+        const bani = BY_SLUG.get(slug);
+        const lineIndex = +top.target.dataset.i;
+        currentLine = bani ? { bani, lineIndex, text: bani.lines[lineIndex].t } : null;
+        const pct = Math.round((i / Math.max(1, indexOfLine.length - 1)) * 100);
+        prog.style.width = pct + '%';
+        prog.setAttribute('aria-valuenow', String(pct));
+        const logEntry = sessionLog.get(slug);
+        if (logEntry && logEntry.stage === 'progress') {
+          logEntry.i = lineIndex;
+          logEntry.end = Date.now();
+        }
+      }
+      for (const e of intersecting) {
+        const slug = e.target.dataset.slug;
+        const logEntry = sessionLog.get(slug);
+        if (e.target === lastLineEl.get(slug) && logEntry && logEntry.stage !== 'completed') {
+          markSampuran(BY_SLUG.get(slug), sessionLog);
+        }
+      }
       try {
         localStorage.setItem(KEY, JSON.stringify(S));
       } catch {}
@@ -1148,6 +1256,31 @@ function renderLine(line) {
   });
   if (prev < chars.length) nodes.push(el('span', { class: 'gap', text: slice(prev, chars.length) }));
   return nodes;
+}
+
+/**
+ * Mark a Bani "ਸੰਪੂਰਨ" (complete) - via the button or by reaching its last
+ * line on screen (see the IntersectionObserver in renderRead). Finalises
+ * this session's reading-log entry, clears the saved position so a future
+ * open starts fresh instead of "resuming" at the very last line, and
+ * refreshes the Completed list if it's currently visible on Home.
+ */
+function markSampuran(bani, sessionLog) {
+  const entry = sessionLog && sessionLog.get(bani.slug);
+  if (entry) {
+    if (entry.stage === 'completed') return; // already completed this session
+    entry.stage = 'completed';
+    entry.end = Date.now();
+  } else {
+    // Defensive fallback - shouldn't normally happen, every renderRead()
+    // creates/reuses a row for each Bani in view before this can fire.
+    S.baniLog.push({ slug: bani.slug, start: Date.now(), end: Date.now(), stage: 'completed', i: 0 });
+  }
+  save();
+  announce('ਸੰਪੂਰਨ · ' + bani.name + ' marked complete');
+  // Home's lists re-derive from S.baniLog fresh every renderHome() call,
+  // so nothing else needs updating here - this only fires while actually
+  // reading, never while Home is on screen.
 }
 
 /** Prompt for a short note on a line, and save it to S.flags. Defaults to the line currently at the top of the reader. */

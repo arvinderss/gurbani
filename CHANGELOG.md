@@ -5,6 +5,35 @@ Changes to specific Gurbani **text** are tracked per-Bani in each content
 file's own `history` array, and surfaced in-app under Settings →
 Changelog.
 
+## 2026-09-18 — Unified reading-state log; ਸੰਪੂਰਨ (Sampuran) completion
+
+Replaced three separate, overlapping state structures (`positions` for
+Continue Reading, `bookmarkArchive` for dismissed entries, a half-built
+`readingLog`) with **one**: `S.baniLog`, an array of `{slug, start, end,
+stage, i}` rows. Every view — Continue Reading, the new Completed list,
+the Bookmarks Archive — is purely a query over this one array (latest row
+per Bani, filtered by `stage`), not separately-maintained state that could
+drift out of sync.
+
+- **ਸੰਪੂਰਨ (Sampuran / "complete") button** at the end of each Bani (each
+  Bani gets its own, even inside a combined Nitnem read). Marks that
+  reading arc complete.
+- **Reaching a Bani's last line on screen also auto-completes it** —
+  reciting Gurbani from memory while following along or auto-scrolling is
+  normal Sikh practice, so this isn't limited to an explicit tap.
+- **A row is reused across multiple sessions** of the same unfinished
+  read (day 1 at 10%, day 2 at 25%, etc. all update the same row) — a
+  *new* row only starts after the previous one was marked completed, or
+  for a Bani never opened before. Keeps the log compact and each "how
+  long has this been in progress" figure meaningful.
+- New **"ਸੰਪੂਰਨ ਬਾਣੀਆਂ · Completed"** section on Home, with a retention
+  window (30/60/90/180/365 days) next to the list it controls.
+  Removing an entry archives it (restorable), same as Continue Reading's
+  ✕ — both feed the same Bookmarks Archive.
+- Dropped the separate `archiveSize` (count-based) setting — with the
+  unified model, "archive" is just a stage on a per-Bani row, not an
+  unbounded growing list, so there's nothing left to cap by count.
+
 ## 2026-09-18 — New Granth Sahib Ji category, collapsible UI, reading tools
 
 - New top-level category **"Granth Sahib Ji"**, holding the two complete

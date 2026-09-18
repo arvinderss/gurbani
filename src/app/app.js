@@ -200,8 +200,10 @@ function catDetails(id, icon, title, nodes, defaultOpen = true) {
 }
 
 function go(r) {
+  const leavingRead = route.tab === 'read' && r.tab !== 'read';
   route = r;
   stopScroll();
+  if (leavingRead) releaseWakeLock();
   render();
   window.scrollTo(0, 0);
 }
@@ -833,7 +835,7 @@ function buildSettings(view, rerender) {
             }),
           ),
         ),
-        num(() => S.speed, (v) => (S.speed = v), 5, 20, 300, (v) => v + ' wpm'),
+        num(() => S.speed, (v) => (S.speed = v), 10, 20, 300, (v) => v + ' wpm'),
       ]),
     ),
     toggle('Auto-start on open', '▶', 'autoScrollOnOpen', 'Start auto-scroll immediately when a Bani opens or resumes'),
@@ -1035,9 +1037,11 @@ function importBackup() {
 // ---------------------------------------------------------------- read
 let scroller = null;
 let wakeLock = null;
+let wakeLockVideo = null; // muted looping <video> fallback, for when navigator.wakeLock is unavailable (e.g. opened as a file:// page, which isn't a secure context)
 let avgWPL = 6; // average words per line; set in renderRead, used in startScroll
 let barVisible = true; // whether the floating reader bar is shown
 let currentLine = null; // { bani, lineIndex, text } for the line nearest the top of the viewport - used by the flag button
+let readGeneration = 0; // bumped on every renderRead() call so a heavy-Bani background build (see buildLineChunk) can tell it's been superseded and stop
 
 /** Count average words per line across a list of Banis. */
 function calcAvgWPL(list) {
@@ -1062,7 +1066,80 @@ function wpmToPxPerSec(wpm, awpl) {
   const lineH = S.size * S.lh;
   return (lineH * wpm) / (awpl * 60);
 }
+
+// ── windowed rendering for very large Banis (the complete Granths) ──────
+// Opening a ~60-70k line Bani used to build every <p> and IntersectionObserver
+// registration in one blocking pass, which is what actually froze low-end
+// devices (the JSON itself parses in well under a second - it's the DOM/IO
+// construction that's expensive at that scale). For a Bani at or above
+// HEAVY_BANI_LINES, renderRead() below builds a small window around the
+// reader's actual starting line synchronously (still feels instant), then
+// fills in the rest before and after it in small background steps so the
+// page stays responsive and paints/accepts input throughout instead of
+// hanging. Every other Bani (the vast majority) is untouched - same single
+// synchronous pass as always.
+const HEAVY_BANI_LINES = 3000;
+const HEAVY_WINDOW_MARGIN = 300; // lines built synchronously around the start position
+const HEAVY_CHUNK_LINES = 500; // lines built per background step, each direction
+const HEAVY_FRAME_BUDGET_MS = 8; // keep building chunks within a frame while under this budget
+
+/**
+ * Build lines [from, to) of one Bani as a standalone DocumentFragment.
+ * Section heading / paragraph-grouping state is reseeded fresh at `from`
+ * (from bani.lines[from-1]'s section - an O(1) lookup, no scan needed) so
+ * every chunk is self-contained and can be built in any order relative to
+ * its neighbours. The only cost of that is a purely cosmetic one: a chunk
+ * boundary landing inside an unusually long section can start a second,
+ * back-to-back paragraph block for what's logically one continuous
+ * section when Paragraph Mode is on - never lost, duplicated or
+ * misordered content, just an extra visual seam every few hundred lines.
+ */
+function buildLineChunk(b, from, to, indexOfLine, lastLineEl, io) {
+  const frag = document.createDocumentFragment();
+  let lastSection = b.lines[from - 1]?.s ?? 0;
+  let para = null;
+  const showTitles = S.showTitles && !S.continuous && b.sections.length > 1;
+  for (let i = from; i < to; i++) {
+    const line = b.lines[i];
+    const s = line.s ?? 0;
+    if (showTitles && s !== lastSection) {
+      const sec = b.sections[s];
+      const label = sec.name ?? (['BODY', 'BANI_SECTION'].includes(sec.t) ? null : sec.t.toLowerCase() + (sec.l ? ' ' + sec.l : ''));
+      if (label) frag.append(el('h2', { class: 'sec', text: label }));
+      para = null;
+    }
+    lastSection = s;
+    if (S.paragraph && !para) {
+      para = el('div', { class: 'sec-body' });
+      frag.append(para);
+    }
+    const id = b.slug + ':' + i;
+    const p = el('p', {
+      class: 'line' + (S.bookmarks[id] ? ' bk' : ''),
+      id: 'l' + i,
+      'data-id': id,
+      'data-i': String(i),
+      'data-slug': b.slug,
+      ondblclick: () => {
+        if (S.bookmarks[id]) delete S.bookmarks[id];
+        else S.bookmarks[id] = { at: Date.now(), text: line.t.slice(0, 40) };
+        save();
+        p.classList.toggle('bk');
+        announce(S.bookmarks[id] ? 'Bookmark added' : 'Bookmark removed');
+      },
+    });
+    p.append(...renderLine(line));
+    (S.paragraph ? para : frag).append(p);
+    indexOfLine[i] = p;
+    if (io) io.observe(p);
+    if (i === b.lines.length - 1) lastLineEl.set(b.slug, p);
+  }
+  return { frag, firstTopNode: frag.firstChild, lastTopNode: frag.lastChild };
+}
+
 function renderRead() {
+  readGeneration++;
+  const myGeneration = readGeneration;
   const list = route.slugs.map((s) => BY_SLUG.get(s)).filter(Boolean);
   avgWPL = calcAvgWPL(list); // update global so startScroll can use it
   titleEl.textContent = route.title;
@@ -1078,86 +1155,16 @@ function renderRead() {
   const sessionLog = new Map(); // slug -> the live baniLog row for this session
   const resumeBySlug = new Map(); // slug -> { i, end } as it was BEFORE this session touched it
   const lastLineEl = new Map(); // Bani slug -> its last <p>, to detect "reached the end"
-  for (const b of list) {
-    let entry = latestEntryFor(b.slug);
-    if (entry && entry.stage !== 'completed') {
-      resumeBySlug.set(b.slug, { i: entry.i, end: entry.end });
-      entry.stage = 'progress'; // reactivate if it had been archived
-    } else {
-      entry = { slug: b.slug, start: Date.now(), end: Date.now(), stage: 'progress', i: 0 };
-      S.baniLog.push(entry);
-    }
-    sessionLog.set(b.slug, entry);
-    if (list.length > 1 && !S.continuous) wrap.append(el('h2', { class: 'bani-title', text: b.name }));
-    if (!S.continuous) {
-      // Provisional/attribution status intentionally isn't shown here -
-      // it's identical across every Bani and belongs in Settings -> About,
-      // not repeated above the text on every single read.
-      if (b.reviewNotes && b.reviewNotes.length) {
-        const details = document.createElement('details');
-        details.className = 'review-notes';
-        const summary = document.createElement('summary');
-        summary.textContent = '⚠ ' + b.reviewNotes.length + ' known review note' + (b.reviewNotes.length > 1 ? 's' : '') + ' for this Bani';
-        details.append(summary);
-        for (const rn of b.reviewNotes) {
-          details.append(el('p', { class: 'small muted', text: 'Line ' + (rn.lineIndex + 1) + ': ' + rn.note }));
-        }
-        wrap.append(details);
-      }
-    }
-    let lastSection = -1;
-    let para = null;
-    b.lines.forEach((line, i) => {
-      const s = line.s ?? 0; // omitted in storage when it's the Bani's first (0th) section
-      if (S.showTitles && !S.continuous && s !== lastSection && b.sections.length > 1) {
-        const sec = b.sections[s];
-        // A generic BODY/BANI_SECTION entry with no real name is just an
-        // internal structural break (a pauri/verse-group boundary) - it
-        // carries no information worth a heading, so show nothing rather
-        // than a bare "Section 7".
-        const label = sec.name ?? (['BODY', 'BANI_SECTION'].includes(sec.t) ? null : sec.t.toLowerCase() + (sec.l ? ' ' + sec.l : ''));
-        if (label) wrap.append(el('h2', { class: 'sec', text: label }));
-        para = null;
-      }
-      lastSection = s;
-      if (S.paragraph && !para) {
-        para = el('div', { class: 'sec-body' });
-        wrap.append(para);
-      }
-      const id = b.slug + ':' + i;
-      const p = el('p', {
-        class: 'line' + (S.bookmarks[id] ? ' bk' : ''),
-        id: 'l' + globalIndex,
-        'data-id': id,
-        'data-i': String(i),
-        'data-slug': b.slug,
-        ondblclick: () => {
-          if (S.bookmarks[id]) delete S.bookmarks[id];
-          else S.bookmarks[id] = { at: Date.now(), text: line.t.slice(0, 40) };
-          save();
-          p.classList.toggle('bk');
-          announce(S.bookmarks[id] ? 'Bookmark added' : 'Bookmark removed');
-        },
-      });
-      p.append(...renderLine(line));
-      (S.paragraph ? para : wrap).append(p);
-      indexOfLine.push(p);
-      lastLineEl.set(b.slug, p);
-      globalIndex++;
-    });
-    if (!S.continuous) {
-      wrap.append(
-        el('div', { class: 'row', style: 'justify-content:center;margin:1rem 0' }, [
-          el('button', {
-            class: 'quiet sampuran-btn',
-            text: '🙏 ਸੰਪੂਰਨ · Mark complete',
-            onclick: () => markSampuran(b, sessionLog),
-          }),
-        ]),
-      );
-    }
-  }
-  // Progress bar
+
+  // A heavy Bani (currently only the two complete Granths) only ever opens
+  // solo, never combined with others (Nitnem and friends are nowhere near
+  // this size), so windowing only needs to handle the single-Bani case -
+  // see buildLineChunk() above.
+  const heavyBani = list.length === 1 && list[0].lines.length >= HEAVY_BANI_LINES ? list[0] : null;
+  let targetLineIndex = 0; // heavy path only: start line, resolved up front from data
+
+  // Progress bar - created before the IntersectionObserver below so its
+  // callback can reference it regardless of which path (below) fills wrap.
   const prog = el('div', {
     class: 'progress-bar',
     role: 'progressbar',
@@ -1166,30 +1173,6 @@ function renderRead() {
     'aria-valuemin': '0',
     'aria-valuemax': '100',
     style: 'width:0',
-  });
-  document.body.append(prog);
-  cleanup.push(() => prog.remove());
-  view.append(wrap, readerBar());
-  view.style.paddingBottom = '0'; // body padding-bottom clears fixed bar
-
-  // Restore position: jump to a searched line, or to wherever the most
-  // recently active Bani in this session (by prior .end) had reached -
-  // for a combined multi-Bani read (e.g. Nitnem) this picks one Bani's
-  // line, not a separately-tracked "combined session" position.
-  requestAnimationFrame(() => {
-    let target = null;
-    if (route.jump !== undefined) {
-      target = indexOfLine[route.jump];
-    } else {
-      let best = null;
-      for (const [slug, r] of resumeBySlug) if (!best || r.end > best.end) best = { slug, i: r.i, end: r.end };
-      if (best) target = indexOfLine.find((p) => p.dataset.slug === best.slug && +p.dataset.i === best.i);
-    }
-    if (target) target.scrollIntoView({ block: 'center' });
-    if (S.autoScrollOnOpen) {
-      // Let the jump above settle first, so auto-scroll doesn't fight it.
-      requestAnimationFrame(() => requestAnimationFrame(() => startScroll()));
-    }
   });
 
   // Track the topmost visible line (for the flag button, progress bar, and
@@ -1203,12 +1186,17 @@ function renderRead() {
       const intersecting = obsEntries.filter((e) => e.isIntersecting);
       const top = intersecting.sort((a, b2) => a.boundingClientRect.top - b2.boundingClientRect.top)[0];
       if (top) {
-        const i = indexOfLine.indexOf(top.target);
         const slug = top.target.dataset.slug;
         const bani = BY_SLUG.get(slug);
         const lineIndex = +top.target.dataset.i;
         currentLine = bani ? { bani, lineIndex, text: bani.lines[lineIndex].t } : null;
-        const pct = Math.round((i / Math.max(1, indexOfLine.length - 1)) * 100);
+        // A windowed heavy Bani's indexOfLine is sparse/out-of-order while
+        // background chunks are still filling in, so both "where is this
+        // line" and "how many lines total" come straight from the data
+        // (every line already carries data-i) instead of scanning the array.
+        const pct = heavyBani
+          ? Math.round((lineIndex / Math.max(1, heavyBani.lines.length - 1)) * 100)
+          : Math.round((indexOfLine.indexOf(top.target) / Math.max(1, indexOfLine.length - 1)) * 100);
         prog.style.width = pct + '%';
         prog.setAttribute('aria-valuenow', String(pct));
         const logEntry = sessionLog.get(slug);
@@ -1230,7 +1218,206 @@ function renderRead() {
     },
     { rootMargin: '-15% 0px -70% 0px' },
   );
-  indexOfLine.forEach((p) => io.observe(p));
+
+  if (heavyBani) {
+    const b = heavyBani;
+    let entry = latestEntryFor(b.slug);
+    if (entry && entry.stage !== 'completed') {
+      resumeBySlug.set(b.slug, { i: entry.i, end: entry.end });
+      entry.stage = 'progress'; // reactivate if it had been archived
+    } else {
+      entry = { slug: b.slug, start: Date.now(), end: Date.now(), stage: 'progress', i: 0 };
+      S.baniLog.push(entry);
+    }
+    sessionLog.set(b.slug, entry);
+    if (!S.continuous && b.reviewNotes && b.reviewNotes.length) {
+      const details = document.createElement('details');
+      details.className = 'review-notes';
+      const summary = document.createElement('summary');
+      summary.textContent = '⚠ ' + b.reviewNotes.length + ' known review note' + (b.reviewNotes.length > 1 ? 's' : '') + ' for this Bani';
+      details.append(summary);
+      for (const rn of b.reviewNotes) {
+        details.append(el('p', { class: 'small muted', text: 'Line ' + (rn.lineIndex + 1) + ': ' + rn.note }));
+      }
+      wrap.append(details);
+    }
+
+    const total = b.lines.length;
+    targetLineIndex = Math.max(0, Math.min(total - 1, route.jump !== undefined ? route.jump : (resumeBySlug.get(b.slug)?.i ?? 0)));
+    const winStart = Math.max(0, targetLineIndex - HEAVY_WINDOW_MARGIN);
+    const winEnd = Math.min(total, targetLineIndex + HEAVY_WINDOW_MARGIN);
+
+    // Phase A: build just the window around the start line synchronously,
+    // so the jump-to-position below still feels instant. Everything else
+    // streams in afterwards, in both directions, via stepChunk().
+    const initial = buildLineChunk(b, winStart, winEnd, indexOfLine, lastLineEl, io);
+    wrap.append(initial.frag);
+    let builtFrom = winStart;
+    let builtTo = winEnd;
+    let backAnchor = initial.firstTopNode; // insertBefore reference for the next backward chunk
+    let sampuranAppended = false;
+
+    const stepChunk = () => {
+      if (myGeneration !== readGeneration) return; // a newer renderRead() call has taken over - abandon
+      try {
+        const start = performance.now();
+        while (performance.now() - start < HEAVY_FRAME_BUDGET_MS) {
+          const canForward = builtTo < total;
+          const canBackward = builtFrom > 0;
+          if (!canForward && !canBackward) {
+            if (!sampuranAppended) {
+              sampuranAppended = true;
+              if (!S.continuous) {
+                wrap.append(
+                  el('div', { class: 'row', style: 'justify-content:center;margin:1rem 0' }, [
+                    el('button', {
+                      class: 'quiet sampuran-btn',
+                      text: '🙏 ਸੰਪੂਰਨ · Mark complete',
+                      onclick: () => markSampuran(b, sessionLog),
+                    }),
+                  ]),
+                );
+              }
+            }
+            return; // fully built - nothing left to schedule
+          }
+          if (canForward) {
+            const to = Math.min(total, builtTo + HEAVY_CHUNK_LINES);
+            const chunk = buildLineChunk(b, builtTo, to, indexOfLine, lastLineEl, io);
+            wrap.append(chunk.frag);
+            builtTo = to;
+          }
+          if (canBackward) {
+            const from = Math.max(0, builtFrom - HEAVY_CHUNK_LINES);
+            const beforeHeight = document.scrollingElement.scrollHeight;
+            const chunk = buildLineChunk(b, from, builtFrom, indexOfLine, lastLineEl, io);
+            wrap.insertBefore(chunk.frag, backAnchor);
+            // New content just appeared above the reader's current spot -
+            // compensate scrollTop by the same delta so nothing visibly
+            // jumps, the same technique any "load more above" list uses.
+            document.scrollingElement.scrollTop += document.scrollingElement.scrollHeight - beforeHeight;
+            backAnchor = chunk.firstTopNode;
+            builtFrom = from;
+          }
+        }
+      } catch (err) {
+        console.error('Pothi Sahib: heavy-Bani background render step failed, retrying next frame', err);
+      }
+      requestAnimationFrame(stepChunk);
+    };
+    requestAnimationFrame(stepChunk);
+  } else {
+    for (const b of list) {
+      let entry = latestEntryFor(b.slug);
+      if (entry && entry.stage !== 'completed') {
+        resumeBySlug.set(b.slug, { i: entry.i, end: entry.end });
+        entry.stage = 'progress'; // reactivate if it had been archived
+      } else {
+        entry = { slug: b.slug, start: Date.now(), end: Date.now(), stage: 'progress', i: 0 };
+        S.baniLog.push(entry);
+      }
+      sessionLog.set(b.slug, entry);
+      if (list.length > 1 && !S.continuous) wrap.append(el('h2', { class: 'bani-title', text: b.name }));
+      if (!S.continuous) {
+        // Provisional/attribution status intentionally isn't shown here -
+        // it's identical across every Bani and belongs in Settings -> About,
+        // not repeated above the text on every single read.
+        if (b.reviewNotes && b.reviewNotes.length) {
+          const details = document.createElement('details');
+          details.className = 'review-notes';
+          const summary = document.createElement('summary');
+          summary.textContent = '⚠ ' + b.reviewNotes.length + ' known review note' + (b.reviewNotes.length > 1 ? 's' : '') + ' for this Bani';
+          details.append(summary);
+          for (const rn of b.reviewNotes) {
+            details.append(el('p', { class: 'small muted', text: 'Line ' + (rn.lineIndex + 1) + ': ' + rn.note }));
+          }
+          wrap.append(details);
+        }
+      }
+      let lastSection = -1;
+      let para = null;
+      b.lines.forEach((line, i) => {
+        const s = line.s ?? 0; // omitted in storage when it's the Bani's first (0th) section
+        if (S.showTitles && !S.continuous && s !== lastSection && b.sections.length > 1) {
+          const sec = b.sections[s];
+          // A generic BODY/BANI_SECTION entry with no real name is just an
+          // internal structural break (a pauri/verse-group boundary) - it
+          // carries no information worth a heading, so show nothing rather
+          // than a bare "Section 7".
+          const label = sec.name ?? (['BODY', 'BANI_SECTION'].includes(sec.t) ? null : sec.t.toLowerCase() + (sec.l ? ' ' + sec.l : ''));
+          if (label) wrap.append(el('h2', { class: 'sec', text: label }));
+          para = null;
+        }
+        lastSection = s;
+        if (S.paragraph && !para) {
+          para = el('div', { class: 'sec-body' });
+          wrap.append(para);
+        }
+        const id = b.slug + ':' + i;
+        const p = el('p', {
+          class: 'line' + (S.bookmarks[id] ? ' bk' : ''),
+          id: 'l' + globalIndex,
+          'data-id': id,
+          'data-i': String(i),
+          'data-slug': b.slug,
+          ondblclick: () => {
+            if (S.bookmarks[id]) delete S.bookmarks[id];
+            else S.bookmarks[id] = { at: Date.now(), text: line.t.slice(0, 40) };
+            save();
+            p.classList.toggle('bk');
+            announce(S.bookmarks[id] ? 'Bookmark added' : 'Bookmark removed');
+          },
+        });
+        p.append(...renderLine(line));
+        (S.paragraph ? para : wrap).append(p);
+        indexOfLine.push(p);
+        lastLineEl.set(b.slug, p);
+        globalIndex++;
+      });
+      if (!S.continuous) {
+        wrap.append(
+          el('div', { class: 'row', style: 'justify-content:center;margin:1rem 0' }, [
+            el('button', {
+              class: 'quiet sampuran-btn',
+              text: '🙏 ਸੰਪੂਰਨ · Mark complete',
+              onclick: () => markSampuran(b, sessionLog),
+            }),
+          ]),
+        );
+      }
+    }
+    indexOfLine.forEach((p) => io.observe(p));
+  }
+
+  document.body.append(prog);
+  cleanup.push(() => prog.remove());
+  view.append(wrap, readerBar());
+  view.style.paddingBottom = '0'; // body padding-bottom clears fixed bar
+
+  // Restore position: jump to a searched line, or to wherever the most
+  // recently active Bani in this session (by prior .end) had reached -
+  // for a combined multi-Bani read (e.g. Nitnem) this picks one Bani's
+  // line, not a separately-tracked "combined session" position. A heavy
+  // Bani already resolved its start line before building (targetLineIndex),
+  // so it's a direct lookup rather than a search.
+  requestAnimationFrame(() => {
+    let target = null;
+    if (heavyBani) {
+      target = indexOfLine[targetLineIndex];
+    } else if (route.jump !== undefined) {
+      target = indexOfLine[route.jump];
+    } else {
+      let best = null;
+      for (const [slug, r] of resumeBySlug) if (!best || r.end > best.end) best = { slug, i: r.i, end: r.end };
+      if (best) target = indexOfLine.find((p) => p.dataset.slug === best.slug && +p.dataset.i === best.i);
+    }
+    if (target) target.scrollIntoView({ block: 'center' });
+    if (S.autoScrollOnOpen) {
+      // Let the jump above settle first, so auto-scroll doesn't fight it.
+      requestAnimationFrame(() => requestAnimationFrame(() => startScroll()));
+    }
+  });
+
   cleanup.push(() => io.disconnect());
   if (S.keepAwake) requestWakeLock();
 }
@@ -1556,7 +1743,7 @@ function readerBar() {
 
   // ── speed badge ────────────────────────────────────────────
   const fmtWPM = (v) => v + ' wpm';
-  const wpmBadge = el('span', { class: 'wpm-badge', text: fmtWPM(S.speed), 'aria-live': 'polite', 'aria-label': S.speed + ' words per minute' });
+  const wpmBadge = el('span', { class: 'wpm-badge compact-hide', text: fmtWPM(S.speed), 'aria-live': 'polite', 'aria-label': S.speed + ' words per minute' });
   const updateWPM = (v) => {
     wpmBadge.textContent = fmtWPM(v);
     wpmBadge.setAttribute('aria-label', v + ' words per minute');
@@ -1565,7 +1752,7 @@ function readerBar() {
   };
 
   // ── font badge ─────────────────────────────────────────────
-  const fontBadge = el('span', { class: 'font-badge', text: S.size + ' px', 'aria-live': 'polite', 'aria-label': S.size + ' pixels' });
+  const fontBadge = el('span', { class: 'font-badge compact-hide', text: S.size + ' px', 'aria-live': 'polite', 'aria-label': S.size + ' pixels' });
   const updateFont = (v) => {
     fontBadge.textContent = v + ' px';
     fontBadge.setAttribute('aria-label', v + ' pixels');
@@ -1575,7 +1762,7 @@ function readerBar() {
 
   // ── play/pause ─────────────────────────────────────────────
   const play = el('button', {
-    class: 'primary hit',
+    class: 'primary hit compact-hide',
     text: '▶',
     'aria-label': 'Start auto-scroll',
     onclick: toggleScroll,
@@ -1590,9 +1777,9 @@ function readerBar() {
     // push controls toward centre
     el('div', { class: 'bar-grow' }),
     // speed group: − ▶ + wpm
-    el('button', { class: 'quiet hit', text: '−', 'aria-label': 'Decrease speed (−5 wpm)', onclick: () => updateWPM(Math.max(20, S.speed - 5)) }),
+    el('button', { class: 'quiet hit', text: '−', 'aria-label': 'Decrease speed (−10 wpm)', onclick: () => updateWPM(Math.max(20, S.speed - 10)) }),
     play,
-    el('button', { class: 'quiet hit', text: '+', 'aria-label': 'Increase speed (+5 wpm)', onclick: () => updateWPM(Math.min(300, S.speed + 5)) }),
+    el('button', { class: 'quiet hit', text: '+', 'aria-label': 'Increase speed (+10 wpm)', onclick: () => updateWPM(Math.min(300, S.speed + 10)) }),
     wpmBadge,
     // separator
     el('div', { class: 'bar-sep' }),
@@ -1699,6 +1886,24 @@ const cleanup = [];
 function toggleScroll() {
   scroller ? stopScroll() : startScroll();
 }
+
+// While auto-scroll is running, a manual touch/wheel/pointer interaction
+// takes priority: the animation loop goes inert (keeps ticking but stops
+// moving the page) until the user has been idle for USER_SCROLL_IDLE_MS,
+// then picks back up from wherever they left off - see the drift-resync in
+// step() below. Listeners are only attached while scroller is active.
+const USER_SCROLL_IDLE_MS = 700;
+let userScrolling = false;
+let userScrollIdleTimer = null;
+function markUserScrolling() {
+  userScrolling = true;
+  clearTimeout(userScrollIdleTimer);
+  userScrollIdleTimer = setTimeout(() => {
+    userScrolling = false;
+  }, USER_SCROLL_IDLE_MS);
+}
+const USER_SCROLL_EVENTS = ['touchstart', 'touchmove', 'wheel', 'pointerdown'];
+
 function startScroll() {
   if (scroller) return;
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
@@ -1710,14 +1915,17 @@ function startScroll() {
   const step = (t) => {
     const dt = last === null ? 0 : Math.min(t - last, 250);
     last = t;
-    if (Math.abs(window.scrollY - target) > 8) target = window.scrollY;
-    target += (wpmToPxPerSec(S.speed, avgWPL) * dt) / 1000;
-    window.scrollTo({ top: target, behavior: 'instant' });
-    const doc = document.scrollingElement;
-    if (Math.ceil(doc.scrollTop + window.innerHeight) >= doc.scrollHeight - 1) return stopScroll();
+    if (!userScrolling) {
+      if (Math.abs(window.scrollY - target) > 8) target = window.scrollY;
+      target += (wpmToPxPerSec(S.speed, avgWPL) * dt) / 1000;
+      window.scrollTo({ top: target, behavior: 'instant' });
+      const doc = document.scrollingElement;
+      if (Math.ceil(doc.scrollTop + window.innerHeight) >= doc.scrollHeight - 1) return stopScroll();
+    }
     scroller = requestAnimationFrame(step);
   };
   scroller = requestAnimationFrame(step);
+  for (const type of USER_SCROLL_EVENTS) document.addEventListener(type, markUserScrolling, { passive: true });
   if (playBtn) {
     playBtn.textContent = '❚❚';
     playBtn.setAttribute('aria-label', 'Pause auto-scroll');
@@ -1728,18 +1936,65 @@ function startScroll() {
 function stopScroll() {
   if (scroller) cancelAnimationFrame(scroller);
   scroller = null;
+  clearTimeout(userScrollIdleTimer);
+  userScrolling = false;
+  for (const type of USER_SCROLL_EVENTS) document.removeEventListener(type, markUserScrolling);
   if (playBtn) {
     playBtn.textContent = '▶';
     playBtn.setAttribute('aria-label', 'Start auto-scroll');
   }
   announce('Auto-scroll stopped');
 }
+// Tiny (2x2px, 1s) silent, black, looping mp4 - the classic "NoSleep" trick.
+// A muted looping video keeps most mobile browsers from dimming/locking the
+// screen even where the Wake Lock API itself is unavailable, which is the
+// normal case here since this app is opened directly as a file:// page (not
+// a secure context, which navigator.wakeLock requires).
+const NOSLEEP_VIDEO_SRC =
+  'data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAMWbW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAAA+gAAQAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAkF0cmFrAAAAXHRraGQAAAADAAAAAAAAAAAAAAABAAAAAAAAA+gAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAAIAAAACAAAAAAAkZWR0cwAAABxlbHN0AAAAAAAAAAEAAAPoAAAAAAABAAAAAAG5bWRpYQAAACBtZGhkAAAAAAAAAAAAAAAAAABAAAAAQABVxAAAAAAALWhkbHIAAAAAAAAAAHZpZGUAAAAAAAAAAAAAAABWaWRlb0hhbmRsZXIAAAABZG1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAASRzdGJsAAAAwHN0c2QAAAAAAAAAAQAAALBhdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAIAAgBIAAAASAAAAAAAAAABFExhdmM2My4xLjEwMSBsaWJ4MjY0AAAAAAAAAAAAAAAAGP//AAAANmF2Y0MBZAAK/+EAGWdkAAqs2V+IiMBEAAADAAQAAAMACDxIllgBAAZo6+PLIsD9+PgAAAAAEHBhc3AAAAABAAAAAQAAABRidHJ0AAAAAAAAFigAAAAAAAAAGHN0dHMAAAAAAAAAAQAAAAEAAEAAAAAAHHN0c2MAAAAAAAAAAQAAAAEAAAABAAAAAQAAABRzdHN6AAAAAAAAAsUAAAABAAAAFHN0Y28AAAAAAAAAAQAAA0YAAABhdWR0YQAAAFltZXRhAAAAAAAAACFoZGxyAAAAAAAAAABtZGlyYXBwbAAAAAAAAAAAAAAAACxpbHN0AAAAJKl0b28AAAAcZGF0YQAAAAEAAAAATGF2ZjYzLjEuMTAxAAAACGZyZWUAAALNbWRhdAAAAq0GBf//qdxF6b3m2Ui3lizYINkj7u94MjY0IC0gY29yZSAxNjUgcjMyMjIgYjM1NjA1YSAtIEguMjY0L01QRUctNCBBVkMgY29kZWMgLSBDb3B5bGVmdCAyMDAzLTIwMjUgLSBodHRwOi8vd3d3LnZpZGVvbGFuLm9yZy94MjY0Lmh0bWwgLSBvcHRpb25zOiBjYWJhYz0xIHJlZj0zIGRlYmxvY2s9MTowOjAgYW5hbHlzZT0weDM6MHgxMTMgbWU9aGV4IHN1Ym1lPTcgcHN5PTEgcHN5X3JkPTEuMDA6MC4wMCBtaXhlZF9yZWY9MSBtZV9yYW5nZT0xNiBjaHJvbWFfbWU9MSB0cmVsbGlzPTEgOHg4ZGN0PTEgY3FtPTAgZGVhZHpvbmU9MjEsMTEgZmFzdF9wc2tpcD0xIGNocm9tYV9xcF9vZmZzZXQ9LTIgdGhyZWFkcz0xIGxvb2thaGVhZF90aHJlYWRzPTEgc2xpY2VkX3RocmVhZHM9MCBucj0wIGRlY2ltYXRlPTEgaW50ZXJsYWNlZD0wIGJsdXJheV9jb21wYXQ9MCBjb25zdHJhaW5lZF9pbnRyYT0wIGJmcmFtZXM9MyBiX3B5cmFtaWQ9MiBiX2FkYXB0PTEgYl9iaWFzPTAgZGlyZWN0PTEgd2VpZ2h0Yj0xIG9wZW5fZ29wPTAgd2VpZ2h0cD0yIGtleWludD0yNTAga2V5aW50X21pbj0xIHNjZW5lY3V0PTQwIGludHJhX3JlZnJlc2g9MCByY19sb29rYWhlYWQ9NDAgcmM9Y3JmIG1idHJlZT0xIGNyZj0yMy4wIHFjb21wPTAuNjAgcXBtaW49MCBxcG1heD02OSBxcHN0ZXA9NCBpcF9yYXRpbz0xLjQwIGFxPTE6MS4wMACAAAAAEGWIhAAV//73ye/Apuvb34E=';
+
+/** A hidden, looped, muted video element used only to keep the screen awake. Created once and reused. */
+function ensureWakeLockVideo() {
+  if (wakeLockVideo) return wakeLockVideo;
+  const v = el('video', {
+    src: NOSLEEP_VIDEO_SRC,
+    muted: true,
+    loop: true,
+    playsinline: true,
+    style: 'position:fixed;width:1px;height:1px;bottom:0;right:0;opacity:0.01;pointer-events:none;',
+  });
+  v.muted = true; // some browsers only honour muted as a property, not the attribute
+  document.body.append(v);
+  wakeLockVideo = v;
+  return v;
+}
+
 async function requestWakeLock() {
-  if (!S.keepAwake || wakeLock || !navigator.wakeLock) return;
-  try {
-    wakeLock = await navigator.wakeLock.request('screen');
-    wakeLock.addEventListener('release', () => (wakeLock = null));
-  } catch {}
+  if (!S.keepAwake) return;
+  if (!wakeLock && navigator.wakeLock) {
+    try {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => (wakeLock = null));
+    } catch {}
+  }
+  if (!wakeLock) {
+    // Wake Lock API unavailable or the request failed - fall back to the
+    // muted-video trick so screen-awake still works from a file:// page.
+    try {
+      await ensureWakeLockVideo().play();
+    } catch {}
+  }
+}
+function releaseWakeLock() {
+  if (wakeLock) {
+    wakeLock.release().catch(() => {});
+    wakeLock = null;
+  }
+  if (wakeLockVideo) {
+    wakeLockVideo.pause();
+    wakeLockVideo.remove();
+    wakeLockVideo = null;
+  }
 }
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) stopScroll();
@@ -1845,12 +2100,12 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     toggleScroll();
   } else if (e.key === '+' || e.key === '=' || e.key === 'ArrowRight') {
-    S.speed = Math.min(300, S.speed + 5);
+    S.speed = Math.min(300, S.speed + 10);
     save();
     document.querySelectorAll('.wpm-badge').forEach((b) => (b.textContent = S.speed + ' wpm'));
     announce(S.speed + ' words per minute');
   } else if (e.key === '-' || e.key === 'ArrowLeft') {
-    S.speed = Math.max(20, S.speed - 5);
+    S.speed = Math.max(20, S.speed - 10);
     save();
     document.querySelectorAll('.wpm-badge').forEach((b) => (b.textContent = S.speed + ' wpm'));
     announce(S.speed + ' words per minute');
@@ -1873,8 +2128,8 @@ document.addEventListener('keydown', (e) => {
 function showShortcuts() {
   const rows = [
     ['Space', 'Play / pause auto-scroll'],
-    ['→ / +', 'Speed up (+5 wpm)'],
-    ['← / −', 'Slow down (−5 wpm)'],
+    ['→ / +', 'Speed up (+10 wpm)'],
+    ['← / −', 'Slow down (−10 wpm)'],
     ['H', 'Hide / show controls'],
     ['L', 'Toggle Larivaar'],
     ['F', 'Flag current line for review'],

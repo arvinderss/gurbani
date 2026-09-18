@@ -392,6 +392,12 @@
       }
       /* flex spacer to push control groups apart */
       .bar-grow { flex: 1; min-width: 0.25rem; }
+      /* on narrow phone-portrait widths, drop the play button and the
+         numeric wpm/font badges - tap-to-toggle already starts/stops
+         scroll, and only the direction of change (±) matters day to day */
+      @media (max-width: 600px) {
+        .bar .compact-hide { display: none; }
+      }
       /* visible handle when bar is hidden */
       .bar-handle {
         position: fixed;

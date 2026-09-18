@@ -3,6 +3,7 @@
 const DATA = JSON.parse(document.getElementById('kosh-data').textContent);
 const BANIS = DATA.banis;
 const BY_SLUG = new Map(BANIS.map((b) => [b.slug, b]));
+const WRITERS = DATA.writers || {};
 const cps = (s) => Array.from(s);
 
 /**
@@ -77,7 +78,7 @@ const firstLetters = (text) =>
 
 // ------------------------------------------------------------ settings
 const DEFAULTS = {
-  theme: 'light',
+  theme: 'nihung',
   larivaar: false,
   larivaarAssist: true,
   vishraam: true,
@@ -89,10 +90,10 @@ const DEFAULTS = {
   showTitles: true,
   autoScrollOnOpen: false, // start auto-scroll immediately when a Bani opens/resumes
   size: 28,
-  lh: 2.2,
+  lh: 1.8,
   weight: 700,
   align: 'center',
-  font: "'Noto Sans Gurmukhi', 'Nirmala UI', sans-serif",
+  font: 'serif',
   speed: 120, // words per minute (scales with font size)
   colors: {},
   favourites: [],
@@ -104,14 +105,51 @@ const DEFAULTS = {
   sampuranWindowDays: 90, // how many days a completed Bani stays in the Completed list, 30/60/90/180/365
   openCats: {}, // which collapsible <details> categories the user has toggled, by id
 };
+// Installed-on-device font stacks. The first name is what the reader tries;
+// the rest are fallbacks so every choice visibly differs even where the
+// named Gurmukhi fonts aren't installed (Gurmukhi glyphs then fall back to
+// the system Gurmukhi face).
+const FONTS = [
+  ['serif', 'System serif'],
+  ["'Noto Sans Gurmukhi', 'Nirmala UI', sans-serif", 'Noto Sans Gurmukhi'],
+  ["'Gurbani Akhar', 'GurbaniLipi', 'Noto Sans Gurmukhi', sans-serif", 'Gurbani Akhar'],
+  ["'Mukta Mahee', 'Noto Sans Gurmukhi', sans-serif", 'Mukta Mahee'],
+  ["'Noto Serif', 'Noto Serif Gurmukhi', 'Nirmala UI', serif", 'Noto Serif'],
+  ["'Roboto Condensed', 'sans-serif-condensed', sans-serif", 'Condensed sans'],
+  ["'Noto Sans Mono', 'Roboto Mono', 'Courier New', monospace", 'Monospace'],
+  ['cursive', 'Cursive'],
+  ['casual', 'Casual'],
+  ["'Georgia', 'Palatino', 'Times New Roman', serif", 'Georgia'],
+  ["'Garamond', 'Book Antiqua', 'Palatino', serif", 'Garamond'],
+  ["'Times New Roman', 'Times', serif", 'Times'],
+  ["'Arial', 'Helvetica Neue', sans-serif", 'Arial'],
+  ["'Verdana', 'Geneva', sans-serif", 'Verdana'],
+  ["'Trebuchet MS', 'Segoe UI', sans-serif", 'Trebuchet MS'],
+  ["'AnmolLipi', 'Noto Sans Gurmukhi', sans-serif", 'AnmolLipi'],
+  ["'Magaz', 'Noto Sans Gurmukhi', sans-serif", 'Magaz'],
+  ["'Raajaa', 'Noto Sans Gurmukhi', sans-serif", 'Raajaa'],
+  ["'Lanma', 'Noto Sans Gurmukhi', sans-serif", 'Lanma'],
+  ["'Gurbani Web Thick', 'Noto Sans Gurmukhi', sans-serif", 'Gurbani Web Thick'],
+  ["'GHW Dukandar', 'Noto Sans Gurmukhi', sans-serif", 'GHW Dukandar'],
+  ["'Punjabi Typewriter', 'Noto Sans Gurmukhi', monospace", 'Punjabi Typewriter'],
+  ["'GHW Adhiapak', 'Noto Sans Gurmukhi', sans-serif", 'GHW Adhiapak'],
+  ["'Karmic Sanj', 'Noto Sans Gurmukhi', sans-serif", 'Karmic Sanj'],
+];
 const KEY = 'pothi-sahib-standalone';
 let S = load();
 function load() {
+  let s;
   try {
-    return { ...DEFAULTS, ...(JSON.parse(localStorage.getItem(KEY)) || {}) };
+    s = JSON.parse(localStorage.getItem(KEY)) || {};
   } catch {
-    return { ...DEFAULTS };
+    s = {};
   }
+  // Adopt the new built-in defaults when an install still sits on the old
+  // ones (the pre-Nihung defaults). Any personalised setting is kept.
+  if (s.theme === 'light' && s.lh === 2.2 && s.font === "'Noto Sans Gurmukhi', 'Nirmala UI', sans-serif") {
+    s = { ...s, theme: DEFAULTS.theme, lh: DEFAULTS.lh, font: DEFAULTS.font };
+  }
+  return { ...DEFAULTS, ...s };
 }
 function save() {
   try {
@@ -862,17 +900,7 @@ function buildSettings(view, rerender) {
     srow(
       '🔤',
       'Font',
-      sel(
-        S.font,
-        [
-          ["'Noto Sans Gurmukhi', 'Nirmala UI', sans-serif", 'Noto Sans Gurmukhi'],
-          ["'Nirmala UI', sans-serif", 'Nirmala UI'],
-          ["'Gurbani Akhar', 'Noto Sans Gurmukhi', sans-serif", 'Gurbani Akhar'],
-          ["'Mukta Mahee', sans-serif", 'Mukta Mahee'],
-          ['serif', 'System serif'],
-        ],
-        (v) => (S.font = v),
-      ),
+      sel(S.font, FONTS, (v) => (S.font = v)),
       'Only fonts installed on this device',
     ),
     srow(
@@ -1706,9 +1734,104 @@ function openFlagDialog(lineInfo) {
   ta.focus();
 }
 
-/** Share a line's text via the OS share sheet, falling back to clipboard/alert. */
+const hexA = (hex, a) => {
+  hex = hex.replace('#', '');
+  const r = parseInt(hex.slice(0, 2), 16),
+    g = parseInt(hex.slice(2, 4), 16),
+    b = parseInt(hex.slice(4, 6), 16);
+  return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
+};
+
+/** Serialise the app's logo mark (from logoMark()) to a PNG-drawable SVG data URL. */
+function logoDataUrl(color) {
+  const svg = logoMark().querySelector('svg');
+  const body = svg.innerHTML.replace(/currentColor/g, color);
+  return (
+    'data:image/svg+xml;charset=utf-8,' +
+    encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">' + body + '</svg>')
+  );
+}
+
+const loadImage = (src) =>
+  new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+
+/** Draw letters with real tracking; ctx.letterSpacing is not universal. */
+function fillTextSpaced(ctx, text, x, y, spacing) {
+  const chars = [...text];
+  const widths = chars.map((c) => ctx.measureText(c).width);
+  const total = widths.reduce((a, b) => a + b, 0) + spacing * Math.max(0, chars.length - 1);
+  let cx = x - total / 2;
+  chars.forEach((c, i) => {
+    ctx.fillText(c, cx + widths[i] / 2, y);
+    cx += widths[i] + spacing;
+  });
+}
+
+const GUR_PA = '੦੧੨੩੪੫੬੭੮੯';
+const paNumber = (n) => String(n).replace(/[0-9]/g, (d) => GUR_PA[+d]);
+
+/** Binary search a [start, value, ...] flat map for the line index i. */
+function flatAt(flat, i) {
+  if (!flat || !flat.length) return null;
+  let lo = 0,
+    hi = flat.length / 2;
+  while (lo + 1 < hi) {
+    const mid = (lo + hi) >> 1;
+    if (flat[mid * 2] <= i) lo = mid;
+    else hi = mid;
+  }
+  return flat[lo * 2 + 1];
+}
+
+/**
+ * Attribution for one line, from data the build derived per line:
+ * which Ang (SGGP page) it's printed on and who wrote it. Bangs with no
+ * per-line data (e.g. panthic compilations) return null; a specific line
+ * with no mapping also gets null so its share falls back to the Bani name.
+ */
+function lineAttribution(info) {
+  const { bani, lineIndex } = info || {};
+  if (!bani || lineIndex == null || !bani.angMap) return null;
+  const ang = flatAt(bani.angMap, lineIndex);
+  const wid = bani.wm ? flatAt(bani.wm, lineIndex) : null;
+  const author = wid && wid !== 'NONE' ? WRITERS[wid] : null;
+  if (ang == null && !author) return null;
+  return { ang, author };
+}
+
+function attributionTitle(info) {
+  const att = lineAttribution(info);
+  if (att && info.bani) {
+    const hon = info.bani.honorific || info.bani.name;
+    return att.ang != null ? hon + ' · ਅੰਗ ' + paNumber(att.ang) : hon;
+  }
+  return info && info.bani ? info.bani.name : null;
+}
+
+function attributionAuthor(info) {
+  const att = lineAttribution(info);
+  return att ? att.author : null;
+}
+
+/** Social-ready caption: the verse framed in dandas, then the Granth + Ang it comes from, then who wrote it. */
+function buildShareText(info) {
+  const parts = [];
+  if (info.text && info.text.trim()) parts.push('॥ ' + info.text.trim().replace(/॥\s*$/, '').trim() + ' ॥');
+  const title = attributionTitle(info);
+  if (title) parts.push(title);
+  const author = attributionAuthor(info);
+  if (author) parts.push(author);
+  return parts.join('\n\n');
+}
+
+/** Share as text via the OS share sheet, falling back to clipboard/alert. */
 async function shareLineAsText(info) {
-  const text = info.text + '\n— ' + info.bani.name + ' · Pothi Sahib';
+  const text = buildShareText(info);
   if (navigator.share) {
     try {
       await navigator.share({ text });
@@ -1725,10 +1848,34 @@ async function shareLineAsText(info) {
   }
 }
 
-/** Draw a line onto a bordered, themed canvas image for sharing. */
-function renderLineImage(info, orientation) {
+async function copyShareText(info) {
+  const text = buildShareText(info);
+  try {
+    await navigator.clipboard.writeText(text);
+    announce('Share text copied to clipboard');
+  } catch {
+    alert(text);
+  }
+}
+
+/** Draw one centered line, shrink-to-fit within maxW; returns the size used. */
+function drawCenterFit(ctx, text, y, maxW, startSize, minSize, weight) {
+  if (!text) return 0;
+  let size = startSize;
+  do {
+    ctx.font = weight + ' ' + size + 'px system-ui, sans-serif';
+    if (ctx.measureText(text).width <= maxW) break;
+    size -= 2;
+  } while (size > minSize);
+  ctx.fillText(text, ctx.canvas.width / 2, y);
+  return size;
+}
+
+/** Draw a line as a themed share card: Granth + Ang on top, who wrote it below, the verse as the main body. */
+async function renderLineImage(info, orientation) {
   const W = orientation === 'landscape' ? 1600 : 1080;
   const H = orientation === 'landscape' ? 1000 : 1600;
+  const P = Math.min(W, H); // portrait-friendly sizing unit
   const canvas = document.createElement('canvas');
   canvas.width = W;
   canvas.height = H;
@@ -1737,37 +1884,105 @@ function renderLineImage(info, orientation) {
   const fg = currentVar('--gurbani');
   const accent = currentVar('--accent');
 
+  // base tint
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, W, H);
 
-  // decorative double border with small corner accents
-  const margin = Math.round(W * 0.07);
-  ctx.strokeStyle = accent;
-  ctx.lineWidth = Math.round(W * 0.006);
-  ctx.strokeRect(margin, margin, W - margin * 2, H - margin * 2);
-  const inner = margin + Math.round(W * 0.02);
-  ctx.lineWidth = Math.max(1, Math.round(W * 0.0015));
+  // corner shading for depth
+  const shade = ctx.createLinearGradient(0, 0, W, H);
+  shade.addColorStop(0, 'rgba(255,255,255,.08)');
+  shade.addColorStop(0.5, 'rgba(0,0,0,0)');
+  shade.addColorStop(1, 'rgba(0,0,0,.10)');
+  ctx.fillStyle = shade;
+  ctx.fillRect(0, 0, W, H);
+
+  // soft accent glow behind the verse
+  const glow = ctx.createRadialGradient(W / 2, H * 0.46, 0, W / 2, H * 0.46, Math.max(W, H) * 0.58);
+  glow.addColorStop(0, hexA(accent, 0.15));
+  glow.addColorStop(1, hexA(accent, 0));
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  // layered frame: outer rule, inner hairline, corner + edge studs
+  const m = Math.round(P * 0.055);
+  ctx.strokeStyle = hexA(accent, 0.9);
+  ctx.lineWidth = Math.max(2, Math.round(W * 0.005));
+  ctx.strokeRect(m, m, W - m * 2, H - m * 2);
+  const inner = m + Math.round(P * 0.018);
+  ctx.strokeStyle = hexA(accent, 0.4);
+  ctx.lineWidth = Math.max(1, Math.round(P * 0.0016));
   ctx.strokeRect(inner, inner, W - inner * 2, H - inner * 2);
-  const cornerR = Math.round(W * 0.014);
+  const stud = Math.round(P * 0.013);
+  ctx.strokeStyle = hexA(accent, 0.85);
+  ctx.lineWidth = 1.5;
   for (const [cx, cy] of [
-    [margin, margin],
-    [W - margin, margin],
-    [margin, H - margin],
-    [W - margin, H - margin],
+    [m, m],
+    [W - m, m],
+    [m, H - m],
+    [W - m, H - m],
+    [W / 2, m],
+    [W / 2, H - m],
+    [m, H / 2],
+    [W - m, H / 2],
   ]) {
     ctx.save();
     ctx.translate(cx, cy);
     ctx.rotate(Math.PI / 4);
-    ctx.fillStyle = accent;
-    ctx.fillRect(-cornerR / 2, -cornerR / 2, cornerR, cornerR);
+    ctx.fillStyle = hexA(accent, 0.85);
+    ctx.fillRect(-stud / 2, -stud / 2, stud, stud);
     ctx.restore();
   }
 
-  // main text: word-wrap, then shrink-to-fit the available box
+  // header: small logo mark, then the Granth + Ang (h1) and who wrote it (h2)
+  let logo = null;
+  try {
+    logo = await loadImage(logoDataUrl(accent));
+  } catch {}
+  const logoW = Math.round(P * 0.115);
+  const logoH = Math.round(logoW * 0.92);
+  const logoTop = Math.round(H * 0.055);
+  if (logo) ctx.drawImage(logo, W / 2 - logoW / 2, logoTop, logoW, logoH);
+  const h1Text = attributionTitle(info);
+  const h2Text = attributionAuthor(info);
+  const textMaxW = W - inner * 2 - Math.round(W * 0.06);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = accent;
+  const h1Size = drawCenterFit(ctx, h1Text, logoTop + logoH + Math.round(P * 0.06), textMaxW, Math.round(P * 0.043), Math.round(P * 0.027), '700');
+  let attrBottom = logoTop + logoH + Math.round(P * 0.06) + h1Size;
+  if (h2Text) {
+    const h2Y = attrBottom + Math.round(P * 0.018);
+    ctx.fillStyle = fg;
+    const h2Size = drawCenterFit(ctx, h2Text, h2Y, textMaxW, Math.round(P * 0.036), Math.round(P * 0.024), '500');
+    attrBottom = h2Y + h2Size;
+  }
+
+  // ornamental divider: rule — ◆ — rule
+  const ornY = attrBottom + Math.round(P * 0.05);
+  const ornHalf = Math.round(P * 0.12);
+  ctx.strokeStyle = hexA(accent, 0.6);
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(W / 2 - ornHalf, ornY);
+  ctx.lineTo(W / 2, ornY);
+  ctx.moveTo(W / 2 + ornHalf, ornY);
+  ctx.lineTo(W / 2, ornY);
+  ctx.stroke();
+  const ds = Math.round(P * 0.007);
+  ctx.save();
+  ctx.translate(W / 2, ornY);
+  ctx.rotate(Math.PI / 4);
+  ctx.fillStyle = hexA(accent, 0.85);
+  ctx.fillRect(-ds / 2, -ds / 2, ds, ds);
+  ctx.restore();
+
+  // verse: word-wrap in the band between the divider and the bottom frame, shrink-to-fit
+  const textTop = ornY + Math.round(P * 0.035);
+  const textBottom = H - inner - Math.round(P * 0.09);
   const textAreaW = W - inner * 2 - Math.round(W * 0.08);
-  const textAreaH = H - inner * 2 - Math.round(H * 0.18);
+  const textAreaH = textBottom - textTop;
   const words = info.text.split(/\s+/).filter(Boolean);
-  let fontSize = Math.round(W * 0.09);
+  let fontSize = Math.round(P * 0.09);
   let lines, lineHeight;
   do {
     ctx.font = fontSize + 'px ' + S.font;
@@ -1785,54 +2000,75 @@ function renderLineImage(info, orientation) {
     }
     if (cur) lines.push(cur);
     fontSize -= 4;
-  } while (fontSize > 20 && (lines.length * lineHeight > textAreaH || lines.some((l) => ctx.measureText(l).width > textAreaW)));
+  } while (
+    fontSize > Math.round(P * 0.03) &&
+    (lines.length * lineHeight > textAreaH || lines.some((l) => ctx.measureText(l).width > textAreaW))
+  );
   ctx.font = fontSize + 'px ' + S.font;
   ctx.fillStyle = fg;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
+  ctx.shadowColor = hexA(accent, 0.55);
+  ctx.shadowBlur = fontSize * 0.5;
+  ctx.shadowOffsetY = fontSize * 0.06;
   const totalTextH = lines.length * lineHeight;
-  let y = H / 2 - totalTextH / 2 + lineHeight / 2 - Math.round(H * 0.03);
+  let y = textTop + (textAreaH - totalTextH) / 2 + lineHeight / 2;
   for (const l of lines) {
     ctx.fillText(l, W / 2, y);
     y += lineHeight;
   }
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetY = 0;
 
-  // attribution
-  ctx.font = Math.round(W * 0.028) + 'px system-ui, sans-serif';
-  ctx.fillStyle = accent;
-  ctx.fillText(info.bani.name, W / 2, H - inner - Math.round(H * 0.05));
-  ctx.font = Math.round(W * 0.02) + 'px system-ui, sans-serif';
-  ctx.fillStyle = fg;
-  ctx.globalAlpha = 0.7;
-  ctx.fillText('Pothi Sahib', W / 2, H - inner - Math.round(H * 0.022));
-  ctx.globalAlpha = 1;
   return canvas;
 }
 
-function openShareImageDialog(info) {
+/** Pick the share card for the reader bar: use the current line if we have it. */
+function openBaniShareDialog() {
+  const cur = currentLine;
+  if (!cur || !cur.text) {
+    const t = route.title;
+    if (t) {
+      if (navigator.share) navigator.share({ title: route.title, text: t }).catch(() => {});
+      else copyShareText({ bani: { name: route.title }, lineIndex: null, text: '' });
+    }
+    return;
+  }
+  openShareDialog(cur, { label: 'Share this Bani' });
+}
+
+function openShareDialog(info, opts = {}) {
   let orientation = 'portrait';
   const img = document.createElement('img');
   img.style.cssText = 'max-width:100%;border-radius:.4rem;margin:.5rem 0;';
+  img.alt = 'Share card';
   const redraw = () => {
-    img.src = renderLineImage(info, orientation).toDataURL('image/png');
+    renderLineImage(info, orientation).then(
+      (c) => {
+        if (dlg.open) img.src = c.toDataURL('image/png');
+      },
+      () => {
+        if (dlg.open) announce('Could not draw the share card');
+      }
+    );
   };
   const portraitBtn = el('button', { class: 'primary', text: 'Portrait' });
   const landscapeBtn = el('button', { text: 'Landscape' });
-  portraitBtn.addEventListener('click', () => {
-    orientation = 'portrait';
-    portraitBtn.className = 'primary';
-    landscapeBtn.className = '';
+  const setOrientation = (o) => {
+    orientation = o;
+    portraitBtn.className = o === 'portrait' ? 'primary' : '';
+    landscapeBtn.className = o === 'landscape' ? 'primary' : '';
     redraw();
-  });
-  landscapeBtn.addEventListener('click', () => {
-    orientation = 'landscape';
-    landscapeBtn.className = 'primary';
-    portraitBtn.className = '';
-    redraw();
-  });
+  };
+  portraitBtn.addEventListener('click', () => setOrientation('portrait'));
+  landscapeBtn.addEventListener('click', () => setOrientation('landscape'));
+  const makeBlob = async () => {
+    const c = await renderLineImage(info, orientation);
+    return new Promise((res) => c.toBlob(res, 'image/png'));
+  };
   const dlg = el('dialog', { class: 'settings-panel' }, [
     el('div', { class: 'panel-head' }, [
-      el('strong', { text: 'Share as image' }),
+      el('strong', { text: opts.label || 'Share card' }),
       el('div', { class: 'grow' }),
       el('button', { class: 'quiet hit', text: '✕', 'aria-label': 'Close', onclick: () => dlg.close() }),
     ]),
@@ -1843,23 +2079,27 @@ function openShareImageDialog(info) {
         el('button', {
           class: 'primary',
           text: '⬇ Download',
-          onclick: () => {
-            renderLineImage(info, orientation).toBlob((blob) => {
+          onclick: async () => {
+            try {
+              const blob = await makeBlob();
               const url = URL.createObjectURL(blob);
-              const a = el('a', { href: url, download: 'pothi-sahib-line.png' });
+              const a = el('a', { href: url, download: 'pothi-sahib.png' });
               document.body.append(a);
               a.click();
               a.remove();
               setTimeout(() => URL.revokeObjectURL(url), 1000);
-            });
+            } catch {
+              announce('Could not render the image');
+            }
           },
         }),
         navigator.canShare
           ? el('button', {
               text: '📤 Share',
-              onclick: () => {
-                renderLineImage(info, orientation).toBlob(async (blob) => {
-                  const file = new File([blob], 'pothi-sahib-line.png', { type: 'image/png' });
+              onclick: async () => {
+                try {
+                  const blob = await makeBlob();
+                  const file = new File([blob], 'pothi-sahib.png', { type: 'image/png' });
                   if (navigator.canShare({ files: [file] })) {
                     try {
                       await navigator.share({ files: [file], title: info.bani.name });
@@ -1867,10 +2107,13 @@ function openShareImageDialog(info) {
                   } else {
                     announce('Sharing images is not supported on this device — use Download instead');
                   }
-                });
+                } catch {
+                  announce('Could not render the image');
+                }
               },
             })
           : null,
+        el('button', { text: '📋 Copy text', onclick: () => copyShareText(info) }),
       ]),
     ]),
   ]);
@@ -1902,10 +2145,10 @@ function openLineActions(info) {
         }),
         el('button', { text: '💬 Share as text', onclick: () => shareLineAsText(info) }),
         el('button', {
-          text: '🖼 Share as image',
+          text: '🖼 Share card',
           onclick: () => {
             dlg.close();
-            openShareImageDialog(info);
+            openShareDialog(info, { label: 'Share card' });
           },
         }),
       ]),
@@ -1994,14 +2237,12 @@ function readerBar() {
         }
       },
     }),
-    navigator.share
-      ? el('button', {
-          class: 'quiet hit',
-          text: '📤',
-          'aria-label': 'Share this Bani',
-          onclick: () => navigator.share({ title: route.title, text: route.title + ' — Pothi Sahib' }).catch(() => {}),
-        })
-      : null,
+    el('button', {
+      class: 'quiet hit',
+      text: '📤',
+      'aria-label': 'Share this Bani',
+      onclick: openBaniShareDialog,
+    }),
     el('button', { class: 'quiet hit', text: '?', 'aria-label': 'Keyboard shortcuts', onclick: showShortcuts }),
   ]);
 

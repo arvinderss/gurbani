@@ -35,12 +35,8 @@ function loadComposite(dir) {
     .readdirSync(dir)
     .filter((f) => f.endsWith('.json') && f !== '_meta.json')
     .sort();
-  const lines = [];
-  for (const f of chunkFiles) {
-    const chunk = readJson(path.join(dir, f));
-    lines.push(...chunk.lines);
-  }
-  return { ...meta, lines };
+  const chunks = chunkFiles.map((f) => readJson(path.join(dir, f)));
+  return { ...meta, lines: PothiBuild.mergeChunks(chunks) };
 }
 
 const baniBySlug = new Map();
@@ -81,7 +77,21 @@ if (problems.length) {
   process.exit(1);
 }
 
-const build = PothiBuild.buildKoshData(manifest, baniBySlug);
+const build = (() => {
+  const report = [];
+  const writers = PothiBuild.enrichWriting(manifest, baniBySlug, report);
+  const reportPath = path.join(ROOT, 'dist', 'writers-report.txt');
+  fs.mkdirSync(path.dirname(reportPath), { recursive: true });
+  const reportText =
+    'POTHI SAHIB - PROVISIONAL per-line attribution report.\n' +
+    'Denotes which Ang each shared line belongs to and who wrote it.\n' +
+    'Generated automatically from the Bani text headings; verify before trusting.\n\n' +
+    report.join('\n') +
+    '\n';
+  fs.writeFileSync(reportPath, reportText, 'utf8');
+  console.log('Wrote ' + report.length + ' attribution entries to ' + reportPath);
+  return PothiBuild.buildKoshData(manifest, baniBySlug, writers);
+})();
 const html = PothiBuild.assembleHtml({
   headHtml: fs.readFileSync(path.join(SRC, 'app', 'head.html'), 'utf8'),
   styleCss: fs.readFileSync(path.join(SRC, 'app', 'styles.css'), 'utf8'),

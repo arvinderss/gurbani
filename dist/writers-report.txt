@@ -1,0 +1,28 @@
+POTHI SAHIB - PROVISIONAL per-line attribution report.
+Denotes which Ang each shared line belongs to and who wrote it.
+Generated automatically from the Bani text headings; verify before trusting.
+
+OK    oankaar                            ang 929  ..938   ਸ੍ਰੀ ਗੁਰੂ ਨਾਨਕ ਦੇਵ ਜੀ
+85%  anand-sahib-6-pauris-and-salok     ang 917  ..?     ਸ੍ਰੀ ਗੁਰੂ ਅਮਰਦਾਸ ਜੀ
+OK    anand-sahib                        ang 917  ..922   ਸ੍ਰੀ ਗੁਰੂ ਅਮਰਦਾਸ ਜੀ
+OK    alahnia-songs-of-grief             ang 578  ..582   ਸ੍ਰੀ ਗੁਰੂ ਨਾਨਕ ਦੇਵ ਜੀ
+86%  asa-ki-var                         ang 8    ..475   ਸ੍ਰੀ ਗੁਰੂ ਨਾਨਕ ਦੇਵ ਜੀ
+OK    shabad-hazare                      ang 96   ..795   ਸ੍ਰੀ ਗੁਰੂ ਅਰਜਨ ਦੇਵ ਜੀ
+OK    salok-mehla-9                      ang 8    ..1429  ਸ੍ਰੀ ਗੁਰੂ ਨਾਨਕ ਦੇਵ ਜੀ
+OK    sidh-gosht                         ang 938  ..946   ਸ੍ਰੀ ਗੁਰੂ ਨਾਨਕ ਦੇਵ ਜੀ
+OK    sukhmani-sahib                     ang 262  ..296   ਸ੍ਰੀ ਗੁਰੂ ਅਰਜਨ ਦੇਵ ਜੀ
+OK    sohila-sahib                       ang 12   ..13    ਸ੍ਰੀ ਗੁਰੂ ਨਾਨਕ ਦੇਵ ਜੀ
+76%  sri-guru-granth-sahib-paath-bhog-mundavnni ang 8    ..?     ਸ੍ਰੀ ਗੁਰੂ ਨਾਨਕ ਦੇਵ ਜੀ
+82%  sri-guru-granth-sahib-paath-bhog-ragmala ang 8    ..?     ਸ੍ਰੀ ਗੁਰੂ ਨਾਨਕ ਦੇਵ ਜੀ
+OK    jap-ji-sahib                       ang 1    ..8     ਸ੍ਰੀ ਗੁਰੂ ਨਾਨਕ ਦੇਵ ਜੀ
+OK    barah-maha                         ang 133  ..136   ਸ੍ਰੀ ਗੁਰੂ ਅਰਜਨ ਦੇਵ ਜੀ
+OK    bavan-akhri                        ang 8    ..262   ਸ੍ਰੀ ਗੁਰੂ ਨਾਨਕ ਦੇਵ ਜੀ
+OK    raamkali-sad                       ang 923  ..924   ਸ੍ਰੀ ਗੁਰੂ ਅਮਰਦਾਸ ਜੀ
+OK    lavan-anand-karaj                  ang 731  ..774   ਸ੍ਰੀ ਗੁਰੂ ਰਾਮਦਾਸ ਜੀ
+99%  akal-ustat                         ang 1    ..38    ਸ੍ਰੀ ਗੁਰੂ ਗੋਬਿੰਦ ਸਿੰਘ ਜੀ
+93%  shabad-hazare-patshahi-10          ang 1    ..712   ਸ੍ਰੀ ਗੁਰੂ ਗੋਬਿੰਦ ਸਿੰਘ ਜੀ
+OK    chandi-di-var                      ang 119  ..127   ਸ੍ਰੀ ਗੁਰੂ ਗੋਬਿੰਦ ਸਿੰਘ ਜੀ
+OK    jaap-sahib                         ang 1    ..10    ਸ੍ਰੀ ਗੁਰੂ ਗੋਬਿੰਦ ਸਿੰਘ ਜੀ
+OK    tav-prasad-savaiye-sravag-sudh     ang 1    ..13    ਸ੍ਰੀ ਗੁਰੂ ਗੋਬਿੰਦ ਸਿੰਘ ਜੀ
+OK    tav-prasad-savaiye-deenan-ki       ang 1    ..37    ਸ੍ਰੀ ਗੁਰੂ ਗੋਬਿੰਦ ਸਿੰਘ ਜੀ
+99%  benti-chaupai-sahib                ang 74   ..1388  ਸ੍ਰੀ ਗੁਰੂ ਗੋਬਿੰਦ ਸਿੰਘ ਜੀ

@@ -331,6 +331,279 @@
   const DEFER_LINE_THRESHOLD = 3000;
 
   /**
+   * Per-line attribution for sharing: which Ang (page) a line sits on and who
+   * wrote it. Two layers:
+   *  - the two complete Granths are walked once and their per-line ang +
+   *    writer maps (compressed as [start, value, start, value, ...] flats)
+   *    are derived from the Bani text itself - mahala/Bhagat/Bhatt headings
+   *    switch the writer, each chunk's `page` becomes the ang;
+   *  - every other Bani is aligned against its parent complete Granth (by
+   *    greedy monotonic text matching, tolerant of merged/split lines) so its
+   *    own lines inherit the ang + writer of the Granth line they come from.
+   *
+   * This is PROVISIONAL: `enrichWriting` also fills `report` with one line
+   * per Bani so a human can eyeball every attribution decision.
+   */
+
+  const WRITER_NAMES = {
+    g1: 'ਸ੍ਰੀ ਗੁਰੂ ਨਾਨਕ ਦੇਵ ਜੀ',
+    g2: 'ਸ੍ਰੀ ਗੁਰੂ ਅੰਗਦ ਦੇਵ ਜੀ',
+    g3: 'ਸ੍ਰੀ ਗੁਰੂ ਅਮਰਦਾਸ ਜੀ',
+    g4: 'ਸ੍ਰੀ ਗੁਰੂ ਰਾਮਦਾਸ ਜੀ',
+    g5: 'ਸ੍ਰੀ ਗੁਰੂ ਅਰਜਨ ਦੇਵ ਜੀ',
+    g9: 'ਸ੍ਰੀ ਗੁਰੂ ਤੇਗ ਬਹਾਦਰ ਜੀ',
+    g10: 'ਸ੍ਰੀ ਗੁਰੂ ਗੋਬਿੰਦ ਸਿੰਘ ਜੀ',
+    kabir: 'ਭਗਤ ਕਬੀਰ ਜੀ',
+    ravidas: 'ਭਗਤ ਰਵਿਦਾਸ ਜੀ',
+    namdev: 'ਭਗਤ ਨਾਮਦੇਵ ਜੀ',
+    farid: 'ਸ਼ੇਖ ਫਰੀਦ ਜੀ',
+    trilocan: 'ਭਗਤ ਤ੍ਰਿਲੋਚਨ ਜੀ',
+    dhanna: 'ਭਗਤ ਧੰਨਾ ਜੀ',
+    beni: 'ਭਗਤ ਬੇਣੀ ਜੀ',
+    bhikhan: 'ਭਗਤ ਭੀਖਨ ਜੀ',
+    jaidev: 'ਭਗਤ ਜੈਦੇਵ ਜੀ',
+    ramanand: 'ਭਗਤ ਰਾਮਾਨੰਦ ਜੀ',
+    saina: 'ਭਗਤ ਸੈਣ ਜੀ',
+    pipa: 'ਭਗਤ ਪੀਪਾ ਜੀ',
+    bhatt: 'ਭੱਟ ਸਾਹਿਬਾਨ',
+  };
+
+  const COMPLETE_GRANTHS = {
+    'sri-guru-granth-sahib-ji-complete': {
+      sggs: true,
+      standaloneGranths: new Set(['sggs']),
+      honorific: 'ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ',
+    },
+    'sri-dasam-granth-sahib-complete': {
+      sggs: false,
+      standaloneGranths: new Set(['dasam']),
+      honorific: 'ਸ੍ਰੀ ਦਸਮ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ',
+    },
+  };
+
+  const GURU_FROM_DIGIT = { '੧': 'g1', '੨': 'g2', '੩': 'g3', '੪': 'g4', '੫': 'g5', '੯': 'g9' };
+
+  const SGGG_BHAGAT = [
+    ['kabir', /ਕਬੀਰ|ਕਬਿਰ/],
+    ['ravidas', /ਰਵਿਦਾਸ|ਰਬਿਦਾਸ|ਰਵਿਦਾਸੁ/],
+    ['namdev', /ਨਾਮਦੇਵ|ਨਾਮਦੇਉ/],
+    ['farid', /ਫਰੀਦ/],
+    ['trilocan', /ਤ੍ਰਿਲੋਚਨ|ਤ੍ਰਿਲੋਚਣ/],
+    ['dhanna', /ਧੰਨਾ|ਧੰਨੇ/],
+    ['beni', /ਬੇਣੀ/],
+    ['bhikhan', /ਭੀਖਨ/],
+    ['jaidev', /ਜੈਦੇਵ/],
+    ['ramanand', /ਰਾਮਾਨੰਦ/],
+    ['saina', /ਸੈਣ/],
+    ['pipa', /ਪੀਪਾ/],
+  ];
+
+  /**
+   * Classify one SGGS line as the START of a writer's section, or null (plain
+   * verse - keep the current writer), or 'NONE' (an explicit no-author
+   * section like Raagmala). Deliberately strict: Gurbani text freely *mentions*
+   * Bhagat names (e.g. Guru 5's "ਜਪਿ ਜਪਿ ਜੀਵੇ ਪਰਮਾਨੰਦਾ") and those mentions
+   * must never switch the writer. Only true heading shapes are accepted.
+   */
+  function detectSggsHeading(t) {
+    if (!t || t.length > 130) return null;
+    const tl = t.trim();
+    if (/(?:ਮਹਲਾ|ਮਃ|ਮ:)\s*([੧੨੩੪੫੯])/.test(tl)) {
+      if (!/॥\s*[੧੨੩੪੫੬੭੮੯]+\s*॥/.test(tl)) {
+        const d = /(?:ਮਹਲਾ|ਮਃ|ਮ:)\s*([੧੨੩੪੫੯])/.exec(tl)[1];
+        return GURU_FROM_DIGIT[d] || null;
+      }
+    }
+    if (/(ਸਵੱਯੇ|ਸਵਈਏ|ਸ੍ਵੈਯੇ|ਸਵੈਯੇ)/.test(tl)) return 'bhatt';
+    if (/ਰਾਇ\s*ਬਲਵੰਡਿ\s*ਤਥਾ\s*ਸਤੈ/.test(tl)) return 'bhatt';
+    if (/(ਰਾਗ\s*ਮਾਲਾ|ਰਾਗਮਾਲਾ)/.test(tl)) return 'NONE';
+    for (const [wid, re] of SGGG_BHAGAT) {
+      const m = re.exec(tl);
+      if (!m) continue;
+      const name = m[0];
+      const after = tl.slice(m.index + name.length);
+      if (after[0] && /[ਾਿੀਉੇੈੋੌ੍ੑੰੱੁਆੲ]/.test(after[0])) continue; // "ਫਰੀਦਾ", "ਸੈਣੀ"...
+      const rest = after.trimStart();
+      if (/^(ਜੀਉ|ਜੀ)(\s.*)?॥/.test(rest) || /^(ਕਾ|ਕੀ|ਕੇ)\s*॥/.test(rest)) return wid;
+      const before = tl.slice(0, m.index).trim();
+      const onlyMarks = /^(॥|ਸ੍ਰੀ|ਸਿਰੀ|ਭਗਤ|ੴ|\s)*$/.test(before);
+      const rest2 = after.replace(/[॥\s੧੨੩੪੫੬੭੮੯੦]/g, '');
+      if (onlyMarks && rest2 === '') return wid; // "ਸ੍ਰੀ ਸੈਣੁ ॥" / "ਪੀਪਾ ॥"
+    }
+    return null;
+  }
+
+  /** Flatten a complete Granth's per-line writers into a [start, writer, ...] flat. */
+  function deriveWriterMap(lines, sggs) {
+    let cur = sggs ? 'g1' : 'g10';
+    const wm = [0, cur];
+    for (let i = 0; i < lines.length; i++) {
+      if (!sggs) continue;
+      const w = detectSggsHeading(lines[i].t);
+      if (w === 'NONE' && cur !== 'NONE') {
+        cur = 'NONE';
+        wm.push(i, 'NONE');
+      } else if (w && w !== 'NONE' && w !== cur) {
+        cur = w;
+        wm.push(i, w);
+      }
+    }
+    return wm;
+  }
+
+  /** Flatten per-line Angs (line.a, set by mergeChunks from each chunk page). */
+  function deriveAngMap(lines) {
+    const flat = [];
+    let last = -1;
+    for (let i = 0; i < lines.length; i++) {
+      const a = lines[i].a;
+      if (a !== last) {
+        if (flat.length && flat[flat.length - 2] === i) flat[flat.length - 1] = a;
+        else flat.push(i, a);
+        last = a;
+      }
+    }
+    if (flat.length === 0) flat.push(0, lines[0] && lines[0].a);
+    return flat;
+  }
+
+  /** Index granth text -> all line indices where it appears (for alignment). */
+  function indexLines(lines) {
+    const m = new Map();
+    for (let i = 0; i < lines.length; i++) {
+      const t = lines[i].t;
+      let arr = m.get(t);
+      if (!arr) {
+        arr = [];
+        m.set(t, arr);
+      }
+      arr.push(i);
+    }
+    return m;
+  }
+
+  /**
+   * Greedy monotonic alignment: assign each standalone line the earliest
+   * granth line with identical text that we haven't passed yet. Tolerates a
+   * Bani that merges or splits lines differently than the Granth and extra
+   * header lines (they get null; those specific lines simply show no Ang).
+   */
+  function alignLines(blines, idx) {
+    const per = new Array(blines.length).fill(null);
+    let gp = 0;
+    for (let k = 0; k < blines.length; k++) {
+      const list = idx.get(blines[k].t);
+      if (!list) continue;
+      let j = 0;
+      while (j < list.length && list[j] < gp) j++;
+      if (j < list.length) {
+        per[k] = list[j];
+        gp = list[j] + 1;
+      }
+    }
+    return per;
+  }
+
+  /** RLE a per-line array into a [start, value, ...] flat (nulls included). */
+  function rle(perValues) {
+    const flat = [];
+    let last = null,
+      start = -1;
+    for (let i = 0; i < perValues.length; i++) {
+      const v = perValues[i];
+      if (v !== last) {
+        if (start >= 0) flat.push(start, last);
+        last = v;
+        start = i;
+      }
+    }
+    if (start >= 0) flat.push(start, last);
+    return flat;
+  }
+
+  function flatAt(flat, i) {
+    if (!flat || !flat.length) return null;
+    let lo = 0,
+      hi = flat.length / 2;
+    while (lo + 1 < hi) {
+      const mid = (lo + hi) >> 1;
+      if (flat[mid * 2] <= i) lo = mid;
+      else hi = mid;
+    }
+    return flat[lo * 2 + 1];
+  }
+
+  /**
+   * Attach `angMap`, `wm` and `honorific` attribution to every Bani that can
+   * be traced to a complete Granth. Returns the {id: name} writer dictionary;
+   * mutates the bani objects and pushes human-readable PROVISIONAL notes
+   * into `report`.
+   */
+  function enrichWriting(manifest, baniBySlug, report) {
+    const writers = {};
+    const granthLines = new Map();   // complete bani slug -> its lines
+    const granthWm = new Map();      // complete bani slug -> its writer flat
+    for (const g of manifest.granths) {
+      for (const slug of g.order) {
+        const src = baniBySlug.get(slug);
+        if (!src || !COMPLETE_GRANTHS[slug]) continue;
+        src.wm = deriveWriterMap(src.lines, COMPLETE_GRANTHS[slug].sggs);
+        src.angMap = deriveAngMap(src.lines);
+        src.honorific = COMPLETE_GRANTHS[slug].honorific;
+        granthLines.set(slug, src.lines);
+        granthWm.set(slug, src.wm);
+        for (let i = 0; i < src.wm.length; i += 2)
+          if (src.wm[i + 1] !== 'NONE') writers[src.wm[i + 1]] = true;
+      }
+    }
+    for (const [slug, lines] of granthLines) {
+      const idx = indexLines(lines);
+      for (const g of manifest.granths) {
+        for (const bslug of g.order) {
+          const src = baniBySlug.get(bslug);
+          if (!src || COMPLETE_GRANTHS[bslug]) continue;
+          if (!COMPLETE_GRANTHS[slug].standaloneGranths.has(src.granthSlug)) continue;
+          const glines = granthLines.get(slug);
+          const gwm = granthWm.get(slug);
+          const per = alignLines(src.lines, idx);
+          let mapped = 0;
+          for (const x of per) if (x != null) mapped++;
+          src.angMap = rle(per.map((gi) => (gi == null ? null : glines[gi].a)));
+          src.wm = rle(per.map((gi) => (gi == null ? null : flatAt(gwm, gi))));
+          src.honorific = COMPLETE_GRANTHS[slug].honorific;
+          for (let i = 0; i < src.wm.length; i += 2)
+            if (src.wm[i + 1] !== 'NONE') writers[src.wm[i + 1]] = true;
+          const firstAng = flatAt(src.angMap, 0);
+          const lastAng = flatAt(src.angMap, src.lines.length - 1);
+          const firstW = flatAt(src.wm, 0);
+          const pct = Math.round((mapped / Math.max(1, src.lines.length)) * 100);
+          report.push(
+            (pct === 100 ? 'OK    ' : pct + '%  ') +
+              src.slug.padEnd(34) +
+              ' ang ' +
+              String(firstAng == null ? '?' : firstAng).padEnd(5) +
+              '..' +
+              String(lastAng == null ? '?' : lastAng).padEnd(5) +
+              ' ' +
+              (firstW === 'NONE' ? '(none)' : WRITER_NAMES[firstW] || firstW)
+          );
+        }
+      }
+    }
+    for (const id of Object.keys(writers)) writers[id] = WRITER_NAMES[id];
+    return writers;
+  }
+
+  /** Concatenate a composite Bani's chunks, carrying each chunk's page as Ang. */
+  function mergeChunks(chunks) {
+    const lines = [];
+    for (const c of chunks) {
+      for (const l of c.lines) lines.push({ a: c.page, ...l });
+    }
+    return lines;
+  }
+
+  /**
    * Assemble the final DATA object the app consumes (a light stub per Bani;
    * the complete Granths carry only their line count until opened, and word
    * offsets are never materialised - the app computes them lazily from t).
@@ -338,7 +611,7 @@
    * payload for each above-threshold Bani, wrapped by assembleHtml into its
    * own <script> block.
    */
-  function buildKoshData(manifest, baniBySlug) {
+  function buildKoshData(manifest, baniBySlug, writers) {
     const granthName = new Map(manifest.granths.map((g) => [g.slug, g.name]));
     const banis = [];
     const deferred = [];
@@ -361,6 +634,9 @@
           source: src.source,
           history: src.history || [],
           reviewNotes: src.reviewNotes || [],
+          angMap: src.angMap,
+          wm: src.wm,
+          honorific: src.honorific,
         };
         if (lines.length >= DEFER_LINE_THRESHOLD) {
           banis.push({ ...common, deferred: true, lineCount: lines.length });
@@ -370,12 +646,14 @@
         }
       }
     }
+    const data = {
+      builtAt: new Date().toISOString(),
+      nitnem: manifest.nitnem || [],
+      banis,
+    };
+    if (writers) data.writers = writers;
     return {
-      data: {
-        builtAt: new Date().toISOString(),
-        nitnem: manifest.nitnem || [],
-        banis,
-      },
+      data,
       deferred,
     };
   }
@@ -419,7 +697,18 @@
     ].join('\n');
   }
 
-  const PothiBuild = { deriveWords, validateLines, validateBani, validateManifest, registerBani, buildKoshData, assembleHtml, DEFER_LINE_THRESHOLD };
+  const PothiBuild = {
+    deriveWords,
+    validateLines,
+    validateBani,
+    validateManifest,
+    registerBani,
+    buildKoshData,
+    assembleHtml,
+    DEFER_LINE_THRESHOLD,
+    mergeChunks,
+    enrichWriting,
+  };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = PothiBuild;
   else root.PothiBuild = PothiBuild;

@@ -2845,6 +2845,13 @@ async function renderLineImage(info, orientation) {
   ctx.shadowBlur = 0;
   ctx.shadowOffsetY = 0;
 
+  // footer: app credit, in the band between the verse area and the inner rule
+  ctx.fillStyle = hexA(fg, 0.55);
+  ctx.font = '500 ' + Math.max(12, Math.round(P * 0.019)) + 'px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText('Pothi Sahib · Arvinder Singh', W / 2, H - inner - Math.round(P * 0.032));
+
   return canvas;
 }
 

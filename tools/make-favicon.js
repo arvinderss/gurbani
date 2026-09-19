@@ -21,7 +21,7 @@ const CA_HEAD = (faviconB64) =>
   '    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />\n' +
   '    <meta\n' +
   '      http-equiv="Content-Security-Policy"\n' +
-  "      content=\"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; media-src data: blob:; base-uri 'none'; form-action 'none'\"\n" +
+  "      content=\"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; font-src data:; media-src data: blob:; base-uri 'none'; form-action 'none'\"\n" +
   '    />\n' +
   '    <meta name="description" content="Pothi Sahib — offline Gurbani reader for Nitnem and Sri Dasam Granth Sahib." />\n' +
   '    <meta name="author" content="Arvinder Singh" />\n' +

@@ -94,6 +94,7 @@ const build = (() => {
 })();
 const html = PothiBuild.assembleHtml({
   headHtml: fs.readFileSync(path.join(SRC, 'app', 'head.html'), 'utf8'),
+  fontsCss: fs.readFileSync(path.join(SRC, 'app', 'fonts.css'), 'utf8'),
   styleCss: fs.readFileSync(path.join(SRC, 'app', 'styles.css'), 'utf8'),
   bodyHtml: fs.readFileSync(path.join(SRC, 'app', 'body.html'), 'utf8'),
   appJs: fs.readFileSync(path.join(SRC, 'app', 'app.js'), 'utf8'),

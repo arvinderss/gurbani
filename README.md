@@ -3,7 +3,7 @@
 An offline Gurbani reader. The whole app — code, styling, and all 32
 Banian (138,063 lines, including the complete Sri Guru Granth Sahib Ji,
 the complete Sri Dasam Granth Sahib and the English Sikh Rehat Maryada) —
-is one ~14.5MB HTML file with no dependencies, no network calls, and
+is one ~14.6MB HTML file with no dependencies, no network calls, and
 nothing to install. It works identically on Android, iOS, Windows, macOS
 and Linux: just open it in a browser.
 
@@ -148,10 +148,13 @@ src/
   app/
     head.html, body.html      ← the HTML shell
     styles.css                ← all styling
+    fonts.css                 ← embedded Gurmukhi webfonts as base64 @font-face (generated, keep committed)
     app.js                    ← all app logic
 tools/
   build.html, build-lib.js    ← the build tool (no install needed)
   build-node.js                ← optional Node.js shortcut for the same build
+  make-fonts.js                ← regenerates src/app/fonts.css from the fonts below
+  fonts/                       ← bundled OFL woff2 fonts + licence files (committed, so builds are offline)
   editor.html                  ← the content editor + manifest editor (no install needed)
   check.html                    ← standalone JSON/content checker for one file at a time (no install needed)
   review.html                   ← resolves reader flags into fixes + a decision log (no install needed)
@@ -245,12 +248,16 @@ security-by-design. What holds by construction, and what was tightened:
   inserted with `textContent`, never `innerHTML`.
 - **Strict CSP, enforced twice.** The built file has a strict
   Content-Security-Policy in its `<head>` (default-src `'none'`,
-  inline-only scripts/styles, `data:` images). The hosted copy adds the
-  same policy — plus `frame-ancestors 'none'`, `X-Content-Type-Options:
-  nosniff`, `Referrer-Policy: no-referrer`,
+  inline-only scripts/styles, `data:` images and `data:` fonts). The
+  hosted copy adds the same policy — plus `frame-ancestors 'none'`,
+  `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`,
   `Cross-Origin-Opener-Policy: same-origin` and a restrictive
   `Permissions-Policy` — via `_headers`, deployed by
   `.github/workflows/deploy-pages.yml`.
+- **Backups round-trip without permissions.** The Settings backup Export
+  downloads a self-contained `data:` URL (no network, nothing uploaded);
+  the Android shell's `DownloadListener` writes it to the device's
+  Downloads folder via MediaStore with no storage permission declared.
 - **No `</script` can leak.** The build escapes `</script` when a content
   file (or a Granth's inline block) would end up inside a script block, so
   hostile text in a content file can corrupt a build but cannot break out

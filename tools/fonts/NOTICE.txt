@@ -1,0 +1,20 @@
+Bundled Gurmukhi webfonts
+=========================
+
+The woff2 files in this directory are embedded (base64) into the reader's
+single-file build by tools/make-fonts.js -> src/app/fonts.css. Only the
+Gurmukhi unicode-range subset is embedded per weight.
+
+The fonts are redistributed under the SIL Open Font License 1.1 as provided
+by Google Fonts and are unchanged apart from Google's WOFF2 subsetting.
+
+- Noto Sans Gurmukhi   (400, 700)  source: https://fonts.google.com/noto/specimen/Noto+Sans+Gurmukhi
+- Noto Serif Gurmukhi  (400, 700)  source: https://fonts.google.com/noto/specimen/Noto+Serif+Gurmukhi
+- Mukta Mahee          (400, 700)  source: https://fonts.google.com/specimen/Mukta+Mahee
+
+These fonts are provided under the SIL Open Font License, Version 1.1
+(https://openfontlicense.org). The full license text, which applies to the
+font files themselves and accompanies them when distributed together with
+any application, is reproduced in this application's source tree alongside
+the font files. The font files, when modified, must retain their original
+reserved font names.

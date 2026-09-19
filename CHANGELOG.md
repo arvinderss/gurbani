@@ -5,6 +5,38 @@ Changes to specific Gurbani **text** are tracked per-Bani in each content
 file's own `history` array, and surfaced in-app under Settings →
 Changelog.
 
+## 2026-09-19 — Fonts that differ anywhere; speed as a plain 0–100 scale; logo pinned; backup round-trip works on Android
+
+- **Font choice now visibly changes the Gurmukhi reading on every device
+  (issue #10).** The Settings → Appearance font list previously relied on
+  named Gurmukhi fonts (Gurbani Akhar, Mukta Mahee, …) that are only in
+  SikhToni's own engine — unpresent on this device — so every choice fell
+  back to the same system Gurmukhi face. Three OFL Gurmukhi webfonts are
+  now embedded into the single file as base64 `@font-face` rules (Gurmukhi
+  subset only, ~88 kB total): **Noto Sans Gurmukhi** (400/700), **Noto Serif
+  Gurmukhi** (400/700) and **Mukta Mahee** (400/700). Selecting any of them
+  now renders unmistakably distinct text; latin and other scripts fall back
+  to the device fonts. The CSP gained `font-src data:` so the embedded fonts
+  are allowed, the fonts plus their SIL OFL 1.1 licence live in
+  `tools/fonts/`, and `tools/make-fonts.js` regenerates the committed
+  `src/app/fonts.css` — the build never needs network access.
+- **Speed is now a unitless 0–100 scale (issue #12).** Building on today's
+  earlier units change, the wpm wording is gone: 400 wpm simply reads as
+  **100**, stopped as **0**, and the reader-bar badge shows the plain number.
+  The `−`/`+` bar buttons and the `←`/`→`/`+`/`−` keys step by **6** (25 wpm)
+  and clamp to 0–100; Settings shows a 0–100 slider, a `N / 100` readout and
+  five presets — Meditative 10 / Slow 18 / Normal 30 / Fast 45 / Maximum 100.
+- **The app logo stays above Continue Reading (issue #11).** `renderContinueReading`
+  previously prepended the chapter section to the whole view, placing the
+  hero logo *underneath* it; the section is now inserted after the hero, so
+  the logo stays pinned at the top.
+- **Backup Export/Import now work in the Android app (issue #13).** Export
+  downloads a `data:` URL instead of a blob (the shell's `DownloadListener`
+  catches onDownloadStart and writes `pothi-sahib-backup.json` to Downloads
+  via MediaStore on Android 10+, legacy falls back to the Downloads dir);
+  import attaches its hidden file `<input>` to the document so the WebView's
+  `onShowFileChooser` → system picker opens, then restores the file.
+
 ## 2026-09-19 — Fullscreen fix in the Android app; speed expressed as 0–100 units
 
 - **Fullscreen button now works inside the APK.** The shell had no
@@ -14,12 +46,10 @@ Changelog.
   system-UI flags while fullscreen, back button exits it) so the ⛶ button
   genuinely fills the screen. In desktop browsers the native Fullscreen API
   path is unchanged.
-- **Speed reworked onto a 0–100 unit scale where 400 wpm = 100 and 0 wpm =
-  0.** The reader-bar `−`/`+` buttons and the `←`/`→`/`+`/`−` keys now step
-  by **25 wpm** and the ceiling is **400 wpm** (was ±10, max 300). The
-  per-Bani badge shows the unit value (e.g. 120 wpm → `30u`), Settings
-  gained a 0–100 slider plus a "Maximum 400" preset, and all aria-labels,
-  help text and announcements were updated to match.
+- **Speed was reworked onto a 0–100 unit scale.** Before these fixes the
+  model went through a display iteration (a small "u" suffix, a "Maximum 400
+  wpm" preset); it was finalised in the following release as a plain number,
+  described above.
 
 ## 2026-09-19 — Fix corrupted favicon (garbled text on Android)
 

@@ -474,7 +474,7 @@
   }
 
   /** Wrap the pieces into the final single-file HTML document. */
-  function assembleHtml({ headHtml, styleCss, bodyHtml, appJs, data, deferred = [] }) {
+  function assembleHtml({ headHtml, fontsCss = '', styleCss, bodyHtml, appJs, data, deferred = [] }) {
     // </script> can never appear unescaped inside an inline <script> block
     const esc = (s) => s.replace(/<\/script/gi, '<\\/script');
     const dataJson = esc(JSON.stringify(data));
@@ -495,6 +495,8 @@
       '  <head>',
       headHtml.trim(),
       '    <style>',
+      fontsCss.trim(),
+      '',
       styleCss,
       '    </style>',
       '  </head>',

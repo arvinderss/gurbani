@@ -49,6 +49,9 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
 
+      - name: Rename APK
+        run: mv android/app/build/outputs/apk/release/app-release.apk android/app/build/outputs/apk/release/gurbani-reader.apk
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v5
         with:
@@ -62,10 +65,11 @@ jobs:
           tag_name: apk
           name: Pothi Sahib (Android)
           files: android/app/build/outputs/apk/release/*.apk
+          update_existing_files: true
           body: |
             Offline Gurbani reader (`Pothi Sahib`, v1.0.0).
 
-            **Install:** download `app-release.apk` and open it on the phone —
+            **Install:** download `gurbani-reader.apk` and open it on the phone —
             allow "install unknown apps" when prompted.
 
             This release is rebuilt and re-signed automatically from the latest

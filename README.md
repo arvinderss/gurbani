@@ -1,11 +1,11 @@
 # Pothi Sahib
 
-An offline Gurbani reader. The whole app — code, styling, and all 31
-Banian (137,732 lines, including the complete Sri Guru Granth Sahib Ji and
-complete Sri Dasam Granth Sahib) — is one ~14MB HTML file with no
-dependencies, no network calls, and nothing to install. It works
-identically on Android, iOS, Windows, macOS and Linux: just open it in a
-browser.
+An offline Gurbani reader. The whole app — code, styling, and all 32
+Banian (138,063 lines, including the complete Sri Guru Granth Sahib Ji,
+the complete Sri Dasam Granth Sahib and the English Sikh Rehat Maryada) —
+is one ~14.5MB HTML file with no dependencies, no network calls, and
+nothing to install. It works identically on Android, iOS, Windows, macOS
+and Linux: just open it in a browser.
 
 **To read: open [`dist/pothi-sahib.html`](dist/pothi-sahib.html).** That's
 the whole app. Copy it to a phone, email it to yourself, put it on a USB
@@ -44,9 +44,10 @@ This repository splits that apart:
 - **`dist/pothi-sahib.html`** — the single-file app, assembled from the
   above. This is what you (or anyone) actually opens to read. It's
   committed to git, so it's always ready to use without a build step.
-- **`tools/`** — two small pages that do the assembling and editing, see
-  below. Both are plain HTML/JS you open directly in a browser — no Node,
-  no npm, no command line, on any platform.
+- **`tools/`** — a small set of standalone pages for assembling, editing,
+  checking and reviewing, see below. Each is plain HTML/JS you open
+  directly in a browser — no Node, no npm, no command line, on any
+  platform.
 
 Because content is now separate, readable, per-Bani files, git gives you
 real history for free: `git log --follow src/content/sggs/jap-ji-sahib.json`
@@ -76,11 +77,40 @@ shows exactly what changed in that Bani and when.
 7. Commit the change: `git add -A && git commit -m "..."`. The diff will
    show exactly the lines you touched.
 
+`tools/editor.html` also edits `src/content/manifest.json`: the **Manifest**
+mode lets you choose which compiled Bani fills a Granth in the two complete
+scriptures (it warns if that Bani is already used elsewhere in the
+manifest), reorder the Granths, and save a manifest that the build's own
+validator (`PothiBuild.validateManifest`) approves before it downloads.
+
 A reader can also flag a line from inside the app itself (🚩 button, or
 press `F`, while reading) with a short note — e.g. "this vishraam looks
-wrong". These flags stay on that person's device; **Settings → My Flags**
-has a "copy all as text" button so they can be handed to whoever does the
-next audit pass.
+wrong". These flags stay on that person's device until they act on them.
+
+### Turning reader flags into fixes (the review workflow)
+
+1. In the app, open **Settings → My Flags → Export for review** to
+   download `pothi-sahib-flags.json` (one entry per flag, with the line
+   text exactly as it was when flagged). Hand that file — or email it — to
+   whoever runs the next audit; it carries no reading history.
+2. On the reviewer's machine, open **[`tools/review.html`](tools/review.html)**:
+   load the flags file, optionally pick the `src/content` folder (to see
+   the *current* source text at each flagged line) and an earlier decision
+   log to resume, then resolve every line as **Keep as-is / ✎ Fix /
+   ✗ Reject** (with a corrected text or a reason).
+3. The tool downloads a durable **`review-log-<date>.json`** (the complete
+   decision record, resumable) plus, when `src/content` was loaded, the
+   corrected Bani or chunk `.json` files — each with a new `history` entry
+   appended, so the fix shows up in the app's Settings → Changelog view.
+4. Move the corrected files back into `src/content/` (replacing the
+   originals), rebuild `dist/`, and commit. The `history` entry explains
+   what the review changed and why; the log keeps a permanent record even
+   for flags that were rejected.
+
+Two of those steps can alternatively be done without the review tool at
+all: a flag's **📋 Copy all as text** button turns the list into pasteable
+plain text, and `editor.html` remains the tool for surgical, line-by-line
+edits.
 
 ## Rebuilding `dist/pothi-sahib.html`
 
@@ -114,6 +144,7 @@ src/
     sggs/*.json                 ← one file per (curated) Bani in Sri Guru Granth Sahib Ji
     sggs/complete/               ← the complete SGGS, chunked one file per Ang — see below
     panthic-compilations/*.json ← Ardaas, Rehras recensions, Aartis, etc.
+    rehat-maryada/*.json         ← the English Sikh Rehat Maryada (one file, 13 chapters)
   app/
     head.html, body.html      ← the HTML shell
     styles.css                ← all styling
@@ -121,9 +152,10 @@ src/
 tools/
   build.html, build-lib.js    ← the build tool (no install needed)
   build-node.js                ← optional Node.js shortcut for the same build
-  editor.html                  ← the content editor (no install needed)
+  editor.html                  ← the content editor + manifest editor (no install needed)
   check.html                    ← standalone JSON/content checker for one file at a time (no install needed)
-  inline-build-lib.js           ← maintenance script: re-embeds build-lib.js into the three tools above
+  review.html                   ← resolves reader flags into fixes + a decision log (no install needed)
+  inline-build-lib.js           ← maintenance script: re-embeds build-lib.js into the three build-lib tools above
 ```
 
 ### Large Banis: chunked (composite) content files
@@ -201,6 +233,44 @@ offsets, so they survive an ordinary text correction elsewhere in the line.
   in-app. These were found, not fixed, during migration; they're the
   first real items for someone doing a printed-edition audit pass.
 
+## Security
+
+A named review pass (2026-09-19) audited the app and its tooling against
+security-by-design. What holds by construction, and what was tightened:
+
+- **Nothing to intercept, nothing to exfiltrate.** The app makes zero
+  network calls and the Android build declares no permissions — there is
+  no `INTERNET` permission at all. All state lives in a single
+  `localStorage` key, and every piece of text (Gurbani or otherwise) is
+  inserted with `textContent`, never `innerHTML`.
+- **Strict CSP, enforced twice.** The built file has a strict
+  Content-Security-Policy in its `<head>` (default-src `'none'`,
+  inline-only scripts/styles, `data:` images). The hosted copy adds the
+  same policy — plus `frame-ancestors 'none'`, `X-Content-Type-Options:
+  nosniff`, `Referrer-Policy: no-referrer`,
+  `Cross-Origin-Opener-Policy: same-origin` and a restrictive
+  `Permissions-Policy` — via `_headers`, deployed by
+  `.github/workflows/deploy-pages.yml`.
+- **No `</script` can leak.** The build escapes `</script` when a content
+  file (or a Granth's inline block) would end up inside a script block, so
+  hostile text in a content file can corrupt a build but cannot break out
+  of it.
+- **Android data stays put.** `android/app/src/main/AndroidManifest.xml`
+  sets `android:allowBackup="false"` (and `fullBackupContent="false"`), so
+  reader flags, notes and reading positions aren't swept into OS/ADB
+  backups.
+- **App dialogs work everywhere.** The app never calls `alert()` or
+  `confirm()` — a bare WebView has no WebChromeClient, so native JS dialogs
+  are silent on Android. All messages go through the app's own `<dialog>`
+  helpers instead.
+- **Backups are sanitised on restore.** `src/app/app.js` has
+  `sanitizeSettings()` (shape-match against `DEFAULTS`) and
+  `sanitizeBackup()` (per-item whitelists: bounded bookmark/flag counts,
+  lengths and coerced numbers), so a hand-edited or hostile backup file
+  can hand the app wrong-typed or oversized data.
+- **The tools are sandboxed too.** `tools/*.html` carry the same strict
+  CSP as the app and only ever render text.
+
 ## Provenance
 
 Text originally adopted from the [Shabad OS database](https://github.com/shabados/shabados)
@@ -208,3 +278,8 @@ Text originally adopted from the [Shabad OS database](https://github.com/shabado
 Bani's `source` field for the specific attribution. All Banian are marked
 `PROVISIONAL` until checked line-by-line against a printed edition — this
 repository exists to make that checking process practical over time.
+
+The Sikh Rehat Maryada is transcribed separately from the SGPC Dharam
+Parchar Committee's English edition (SGPC, Amritsar, English ed. 1997);
+it is `PROVISIONAL` the same way and carries its own attribution in
+`src/content/rehat-maryada/sikh-rehat-maryada.json`.

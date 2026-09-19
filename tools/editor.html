@@ -50,10 +50,15 @@
         font-size: 0.75rem;
         padding: 0.15rem 0.5rem;
       }
-      .row {
+.row {
         display: flex;
-        gap: 0.5rem;
+        flex-wrap: wrap;
         align-items: center;
+        gap: 0.5rem;
+      }
+      .bani-itm {
+        border-top: 1px solid #eee;
+        padding: 0.25rem 0;
       }
       .meta label {
         display: block;
@@ -129,13 +134,33 @@
   <body>
     <h1>Pothi Sahib — Content Editor</h1>
     <p class="muted">
-      Opens entirely in this browser tab. Nothing is uploaded anywhere. Load one Bani's JSON file, correct it, save —
-      it downloads the corrected file, which you drop back into <code>src/content/&lt;granth&gt;/</code> in place of
-      the old one, then rebuild with <a href="build.html">build.html</a>.
+      Opens entirely in this browser tab. Nothing is uploaded anywhere.
+      <strong>To correct a Bani:</strong> load its JSON file (single select) and save — the download replaces the file in
+      <code>src/content/&lt;granth&gt;/</code>. <strong>To choose which Banis ship in the app:</strong> select
+      <code>manifest.json</code> (plus any Bani files you want available to re-add; multi-select) and toggle them in/out.
+      Then rebuild with <a href="build.html">build.html</a>.
     </p>
 
     <div class="card">
-      <input type="file" id="picker" accept="application/json,.json" />
+      <input type="file" id="picker" accept="application/json,.json" multiple />
+    </div>
+
+    <div id="manifestCard" hidden>
+      <div class="card">
+        <strong>Content manifest — which Banis ship in the final reader/app</strong>
+        <p class="muted">
+          Uncheck a Bani to remove it from the build (its content files stay safe on disk; re-checking re-includes it).
+          Use ↑ / ↓ to reorder. To re-add a Bani whose file you loaded but isn't listed, pick it under “＋ Add”. Saving
+          downloads <code>manifest.json</code> — drop it into <code>src/content/</code> (replacing the old one) and
+          rebuild. Banis removed here are not bundled and never appear in the app.
+        </p>
+        <div id="manifestGranths"></div>
+        <div id="manifestProblems"></div>
+        <div class="row" style="margin-top: 0.5rem">
+          <button id="saveManifestBtn" class="primary">Save manifest.json</button>
+          <span id="manifestStatus" class="muted"></span>
+        </div>
+      </div>
     </div>
 
     <div id="editor" hidden>
@@ -660,7 +685,7 @@
 
   /** Wrap the pieces into the final single-file HTML document. */
   function assembleHtml({ headHtml, styleCss, bodyHtml, appJs, data, deferred = [] }) {
-    // </script> can never appear unescaped inside an inline <script> block
+    // <\/script> can never appear unescaped inside an inline <script> block
     const esc = (s) => s.replace(/<\/script/gi, '<\\/script');
     const dataJson = esc(JSON.stringify(data));
     const deferredBlocks = deferred
@@ -671,7 +696,7 @@
           d.slug +
           '" type="application/json">\n' +
           esc(JSON.stringify({ slug: d.slug, sections: d.sections, lines: d.lines })) +
-          '\n    </script>',
+          '\n    <\/script>',
       )
       .join('\n');
     return [
@@ -686,11 +711,11 @@
       bodyHtml.trim(),
       '    <script id="kosh-data" type="application/json">',
       dataJson,
-      '    </script>',
+      '    <\/script>',
       deferredBlocks,
       '    <script>',
       appJs,
-      '    </script>',
+      '    <\/script>',
       '  </body>',
       '</html>',
       '',
@@ -728,6 +753,10 @@
       const fSlugGranth = document.getElementById('fSlugGranth');
       const metaCard = document.getElementById('metaCard');
       const chunkNotice = document.getElementById('chunkNotice');
+      const manifestCard = document.getElementById('manifestCard');
+      const manifestGranths = document.getElementById('manifestGranths');
+      const manifestProblems = document.getElementById('manifestProblems');
+      const manifestStatus = document.getElementById('manifestStatus');
       const reviewCard = document.getElementById('reviewCard');
       const changeNoteRow = document.getElementById('changeNoteRow');
       const linesEl = document.getElementById('lines');
@@ -735,8 +764,38 @@
       const changeNote = document.getElementById('changeNote');
 
       picker.addEventListener('change', async () => {
-        const file = picker.files[0];
-        if (!file) return;
+        const files = Array.from(picker.files);
+        if (!files.length) return;
+
+        // Classify every picked file. A manifest (has "granths") switches the
+        // editor into "include/exclude Banis for the build" mode; anything
+        // else is edited as a single Bani or composite chunk as before.
+        const parsed = [];
+        let manifestFile = null;
+        for (const file of files) {
+          let json;
+          try {
+            json = JSON.parse(await file.text());
+          } catch {
+            continue;
+          }
+          if (json && typeof json === 'object' && Array.isArray(json.granths)) {
+            manifestFile = { file, json };
+            continue;
+          }
+          parsed.push({ file, json });
+        }
+
+        if (manifestFile) {
+          const bySlug = new Map();
+          for (const { json } of parsed) {
+            if (json && typeof json === 'object' && typeof json.slug === 'string') bySlug.set(json.slug, json);
+          }
+          openManifest(manifestFile.json, bySlug, manifestFile.file.name);
+          return;
+        }
+
+        const file = files[0];
         fileName = file.name;
         bani = JSON.parse(await file.text());
         // A chunk file (part of a large composite Bani, see README "Large
@@ -761,6 +820,134 @@
         renderLines();
         renderNotes();
         editor.hidden = false;
+      });
+
+      // ------------------------------------------------------- manifest mode
+      let mfManifest = null; // { granths: [{slug, name, order, ...}], nitnem?: [...] }
+      let mfBaniBySlug = new Map(); // slug -> bani (only the ones the user also picked)
+      let mfByGranth = [];
+
+      function openManifest(manifestJson, bySlug, sourceName) {
+        mfManifest = manifestJson;
+        mfBaniBySlug = bySlug;
+        mfByGranth = (manifestJson.granths || []).map((g) => ({
+          granth: g,
+          items: (g.order || []).map((slug) => ({ slug })),
+        }));
+        editor.hidden = true;
+        manifestCard.hidden = false;
+        manifestStatus.textContent = `editing ${sourceName} — ${bySlug.size} Bani file(s) loaded for re-adding`;
+        renderManifest();
+      }
+
+      function renderManifest() {
+        manifestGranths.replaceChildren();
+        manifestProblems.replaceChildren();
+        const used = new Set();
+        for (const grp of mfByGranth) for (const it of grp.items) used.add(it.slug);
+        const available = [...mfBaniBySlug.keys()].filter((s) => !used.has(s)).sort();
+
+        mfByGranth.forEach((grp, gi) => {
+          const card = document.createElement('div');
+          card.className = 'card';
+          const head = document.createElement('div');
+          head.className = 'row';
+          const title = document.createElement('strong');
+          title.textContent = grp.granth.name + ' · ' + grp.granth.slug;
+          head.append(title);
+          card.append(head);
+
+          grp.items.forEach((it, ri) => {
+            const wrap = document.createElement('div');
+            wrap.className = 'row bani-itm';
+            const idx = document.createElement('span');
+            idx.className = 'idx';
+            idx.textContent = String(ri + 1).padStart(2, '0');
+            const label = document.createElement('span');
+            const src = mfBaniBySlug.get(it.slug);
+            label.textContent = src && src.name ? `${it.slug}  —  ${src.name}` : it.slug;
+            const up = document.createElement('button');
+            up.className = 'small';
+            up.textContent = '↑';
+            up.disabled = ri === 0;
+            up.title = 'Move earlier in this Granth (earlier = higher in the app)';
+            up.addEventListener('click', () => {
+              const a = grp.items.splice(ri - 1, 1, it)[0];
+              grp.items[ri] = a;
+              renderManifest();
+            });
+            const down = document.createElement('button');
+            down.className = 'small';
+            down.textContent = '↓';
+            down.disabled = ri === grp.items.length - 1;
+            down.title = 'Move later in this Granth';
+            down.addEventListener('click', () => {
+              const a = grp.items.splice(ri + 1, 1, it)[0];
+              grp.items[ri] = a;
+              renderManifest();
+            });
+            const remove = document.createElement('button');
+            remove.className = 'small danger';
+            remove.textContent = '✕ Remove';
+            remove.title = 'Remove this Bani from the build (its content file stays on disk)';
+            remove.addEventListener('click', () => {
+              if (!confirm('Remove "' + it.slug + '" from the build? Its content file stays on disk.')) return;
+              grp.items.splice(ri, 1);
+              renderManifest();
+            });
+            wrap.append(idx, label, up, down, remove);
+            card.append(wrap);
+          });
+
+          const addRow = document.createElement('div');
+          addRow.className = 'row';
+          addRow.style.marginTop = '0.4rem';
+          const pick = document.createElement('select');
+          const none = document.createElement('option');
+          none.value = '';
+          none.textContent = '＋ Add a Bani you loaded…';
+          pick.append(none);
+          for (const s of available) {
+            const opt = document.createElement('option');
+            opt.value = s;
+            const src = mfBaniBySlug.get(s);
+            opt.textContent = src && src.name ? `${s} — ${src.name}` : s;
+            pick.append(opt);
+          }
+          pick.addEventListener('change', () => {
+            if (!pick.value) return;
+            grp.items.push({ slug: pick.value });
+            renderManifest();
+          });
+          addRow.append(pick);
+          card.append(addRow);
+          manifestGranths.append(card);
+        });
+      }
+
+      document.getElementById('saveManifestBtn').addEventListener('click', () => {
+        const out = { ...mfManifest, granths: mfByGranth.map((grp) => ({ ...grp.granth, order: grp.items.map((it) => it.slug) })) };
+        const problems = PothiBuild.validateManifest(out, mfBaniBySlug);
+        manifestProblems.replaceChildren();
+        if (problems.length) {
+          const ul = document.createElement('ul');
+          ul.className = 'problems';
+          for (const p of problems) {
+            const li = document.createElement('li');
+            li.textContent = p;
+            ul.append(li);
+          }
+          manifestProblems.append(document.createTextNode('Validation notes (you can still save):'), ul);
+        }
+        const json = JSON.stringify(out, null, 2) + '\n';
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.getElementById('downloadLink');
+        a.href = url;
+        a.download = 'manifest.json';
+        a.hidden = true;
+        a.click();
+        manifestStatus.textContent = 'Saved manifest.json. Drop it into src/content/ and rebuild with build.html.';
       });
 
       function renderLines() {

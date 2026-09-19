@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'"
+    />
+    <title>Pothi Sahib — Review reader flags</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 52rem;
+        margin: 1.5rem auto;
+        padding: 0 1rem 6rem;
+        color: #222;
+        line-height: 1.5;
+      }
+      h1 {
+        font-size: 1.3rem;
+      }
+      .muted {
+        color: #666;
+        font-size: 0.85rem;
+      }
+      .card {
+        border: 1px solid #ddd;
+        border-radius: 0.5rem;
+        padding: 1rem;
+        margin-bottom: 0.8rem;
+      }
+      .stats {
+        position: sticky;
+        top: 0;
+        background: #fffdf8;
+        border: 1px solid #ddd;
+        border-radius: 0.5rem;
+        padding: 0.5rem 0.8rem;
+        margin-bottom: 0.8rem;
+        z-index: 2;
+      }
+      button {
+        font: inherit;
+        border: 1px solid #999;
+        border-radius: 0.4rem;
+        padding: 0.3rem 0.7rem;
+        background: #fff;
+        cursor: pointer;
+      }
+      button.primary {
+        background: #2468ac;
+        border-color: #2468ac;
+        color: #fff;
+      }
+      button.on {
+        background: #1d5ea5;
+        border-color: #1d5ea5;
+        color: #fff;
+      }
+      button:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+      .row {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .grow {
+        flex: 1;
+      }
+      textarea,
+      input[type='text'] {
+        font: inherit;
+        width: 100%;
+        box-sizing: border-box;
+        padding: 0.4rem 0.5rem;
+        border: 1px solid #aaa;
+        border-radius: 0.4rem;
+      }
+      textarea {
+        min-height: 3rem;
+        resize: vertical;
+      }
+      .diff {
+        border-left: 3px solid #e6a23c;
+        padding-left: 0.6rem;
+        margin: 0.3rem 0;
+      }
+      .q {
+        font-weight: 600;
+        margin-bottom: 0.15rem;
+      }
+      .line {
+        font-family: 'GurbaniAkhar', 'Raavi', 'Noto Sans Gurmukhi', sans-serif;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Pothi Sahib — Review reader flags</h1>
+    <p class="muted">
+      Resolve the reader flags exported from the app (Settings → My Flags → <b>Export for review</b>): approve each flagged line
+      as-is, correct its text, or reject it with a reason. The result is a decision log for the person who next audits the text,
+      and — when you load the content folder — corrected <code>.json</code> files with a new history entry in each Bani, ready to
+      drop back into <code>src/content/</code>.
+    </p>
+
+    <div class="card">
+      <div class="row">
+        <button id="loadFlags" class="primary">1 · Load flags file</button>
+        <button id="loadContent">2 · Load src/content (optional)</button>
+        <button id="loadLog">3 · Resume from an earlier log (optional)</button>
+        <span class="muted grow" id="pathInfo"></span>
+      </div>
+      <input id="flagsInput" type="file" accept="application/json,.json" hidden />
+      <input id="contentInput" type="file" webkitdirectory directory multiple hidden />
+      <input id="logInput" type="file" accept="application/json,.json" hidden />
+    </div>
+
+    <div class="stats row" id="stats">
+      <span id="statCount">No flags loaded.</span>
+      <span class="grow"></span>
+      <button id="downloadLog" disabled>Download decision log</button>
+      <button id="downloadFixed" disabled>Download fixed content</button>
+    </div>
+
+    <div id="list"></div>
+
+    <script>
+      'use strict';
+      // Pure helpers are exposed as PothiReview so the verify harness can test them.
+      window.PothiReview = (function () {
+        function buildPageIndex(chunkFiles) {
+          // chunkFiles: [{ name, lines }], pre-sorted by name. Returns [{file,start,len}].
+          const pages = [];
+          let acc = 0;
+          for (const f of chunkFiles) {
+            pages.push({ file: f.name, start: acc, len: Array.isArray(f.lines) ? f.lines.length : 0 });
+            acc += pages[pages.length - 1].len;
+          }
+          return pages;
+        }
+        function locInChunks(pages, lineIndex) {
+          for (const p of pages) {
+            if (lineIndex >= p.start && lineIndex < p.start + p.len) return { file: p.file, localIndex: lineIndex - p.start };
+          }
+          return null;
+        }
+        return { version: 1, buildPageIndex, locInChunks };
+      })();
+
+      const $ = (id) => document.getElementById(id);
+      const FLAGS = []; // resolved fresh from the file each time
+      const CONTENT_FILES = new Map(); // relPath -> File  (from step 2, used lazily)
+      const GRANTH_DIRS = new Set();
+      const DECISIONS = new Map(); // 'slug:lineIndex' -> {status, text, note, reviewedAt}
+      const FLAG_META = new Map(); // 'slug:lineIndex' -> {slug, granthSlug, lineIndex, text, note, at}
+      const BANI_CACHE = new Map(); // slug -> {kind, granth, json} resolved from CONTENT_FILES
+
+      function clearCaches() {
+        BANI_CACHE.clear();
+      }
+
+      $('flagsInput').addEventListener('change', async () => {
+        const f = $('flagsInput').files && $('flagsInput').files[0];
+        if (!f) return;
+        try {
+          const parsed = JSON.parse(await f.text());
+          if (parsed.format !== 'pothi-sahib-review/1' || !Array.isArray(parsed.flags)) throw new Error('not a Pothi Sahib flags file (expected format "pothi-sahib-review/1")');
+          FLAGS.length = 0;
+          for (const fl of parsed.flags) FLAGS.push(fl);
+          FLAG_META.clear();
+          for (const fl of FLAGS) FLAG_META.set(fl.slug + ':' + fl.lineIndex, fl);
+          clearCaches();
+          $('pathInfo').textContent = f.name + ' · ' + FLAGS.length + ' flags';
+          render();
+        } catch (e) {
+          alert('Could not load flags: ' + e.message);
+        }
+      });
+
+      $('contentInput').addEventListener('change', () => {
+        CONTENT_FILES.clear();
+        GRANTH_DIRS.clear();
+        const files = $('contentInput').files;
+        for (const file of files) {
+          const rel = file.webkitRelativePath || file.name;
+          CONTENT_FILES.set(rel, file);
+          const top = rel.split('/')[0];
+          if (top && top !== file.name) GRANTH_DIRS.add(top);
+        }
+        $('pathInfo').textContent = $('pathInfo').textContent + ' · content folder loaded (' + CONTENT_FILES.size + ' files)';
+        clearCaches();
+        render();
+      });
+
+      $('logInput').addEventListener('change', async () => {
+        const f = $('logInput').files && $('logInput').files[0];
+        if (!f) return;
+        try {
+          const parsed = JSON.parse(await f.text());
+          if (parsed.format !== 'pothi-sahib-review/1' || !Array.isArray(parsed.decisions)) throw new Error('not a Pothi Sahib review log');
+          for (const d of parsed.decisions) {
+            if (d && typeof d.lineIndex === 'number' && d.slug) DECISIONS.set(d.slug + ':' + d.lineIndex, d);
+          }
+          render();
+        } catch (e) {
+          alert('Could not load the log: ' + e.message);
+        }
+      });
+
+      function readText(file) {
+        return file.text();
+      }
+
+      // Lazily resolve one Bani's content files to objects. Shapes:
+      //   { kind:'single', granth, slug, file, json }
+      //   { kind:'composite', granth, slug, metaFile, meta, chunks:[{name,file,json}] }
+      async function readBani(flag) {
+        if (BANI_CACHE.has(flag.slug)) return BANI_CACHE.get(flag.slug);
+        const bani = await _readBani(flag);
+        BANI_CACHE.set(flag.slug, bani);
+        return bani;
+      }
+      async function _readBani(flag) {
+        const slug = flag.slug;
+        const granth = flag.granthSlug;
+        if (granth) {
+          const singleRel = granth + '/' + slug + '.json';
+          if (CONTENT_FILES.has(singleRel)) {
+            const file = CONTENT_FILES.get(singleRel);
+            return { kind: 'single', granth, slug, file, json: JSON.parse(await readText(file)) };
+          }
+          const metaRel = granth + '/' + slug + '/_meta.json';
+          if (CONTENT_FILES.has(metaRel)) {
+            const metaFile = CONTENT_FILES.get(metaRel);
+            const meta = JSON.parse(await readText(metaFile));
+            const chunkFiles = [];
+            for (const [rel, file] of CONTENT_FILES) {
+              const m = rel.match(new RegExp('^' + granth.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '/' + slug + '/(ang-\\d+\\.json)$'));
+              if (m) chunkFiles.push({ name: m[1], file, json: null });
+            }
+            chunkFiles.sort((a, b) => (a.name < b.name ? -1 : 1));
+            for (const c of chunkFiles) c.json = JSON.parse(await readText(c.file));
+            return { kind: 'composite', granth, slug, metaFile, meta, chunks: chunkFiles };
+          }
+        }
+        // Fallback: search every granth dir for {slug}.json
+        for (const dir of GRANTH_DIRS) {
+          const rel = dir + '/' + slug + '.json';
+          if (CONTENT_FILES.has(rel)) {
+            const file = CONTENT_FILES.get(rel);
+            return { kind: 'single', granth: dir, slug, file, json: JSON.parse(await readText(file)) };
+          }
+        }
+        return null;
+      }
+
+      function currentText(bani, lineIndex) {
+        if (!bani) return null;
+        if (bani.kind === 'single') return (bani.json.lines && bani.json.lines[lineIndex] && bani.json.lines[lineIndex].t) || null;
+        const pages = window.PothiReview.buildPageIndex(bani.chunks);
+        const loc = window.PothiReview.locInChunks(pages, lineIndex);
+        if (!loc) return null;
+        const chunk = bani.chunks.find((c) => c.name === loc.file);
+        return (chunk && chunk.json.lines && chunk.json.lines[loc.localIndex] && chunk.json.lines[loc.localIndex].t) || null;
+      }
+
+      function baniName(bani, flag) {
+        if (!bani) return flag.slug;
+        if (bani.kind === 'single') return bani.json.name || flag.slug;
+        return bani.meta.name || flag.slug;
+      }
+
+      function statusFor(slug, lineIndex) {
+        const d = DECISIONS.get(slug + ':' + lineIndex);
+        return d ? d.status : 'keep';
+      }
+
+      function setStatus(slug, lineIndex, status, shouldRender) {
+        const d = DECISIONS.get(slug + ':' + lineIndex) || { slug, lineIndex, flaggedText: FLAG_META.get(slug + ':' + lineIndex)?.text || '' };
+        d.status = status;
+        if (status !== 'fixed') d.text = undefined;
+        d.reviewedAt = d.reviewedAt || new Date().toISOString();
+        DECISIONS.set(slug + ':' + lineIndex, d);
+        if (shouldRender) render();
+      }
+
+      function render() {
+        const list = $('list');
+        list.textContent = '';
+        const nDecided = DECISIONS.size;
+        const nFixed = [...DECISIONS.values()].filter((d) => d.status === 'fixed').length;
+        $('statCount').textContent = FLAGS.length
+          ? `${FLAGS.length} flags · ${nDecided} resolved · ${nFixed} to be fixed`
+          : 'No flags loaded.';
+        $('downloadLog').disabled = FLAGS.length === 0;
+        $('downloadFixed').disabled = nFixed === 0;
+
+        if (!FLAGS.length) {
+          list.append(panel('Load the flags file exported from the app (Settings → My Flags → Export for review) to get started.'));
+          return;
+        }
+        (async () => {
+          for (const flag of FLAGS) {
+            list.append(await renderFlag(flag));
+          }
+        })();
+      }
+
+      async function renderFlag(flag) {
+        const key = flag.slug + ':' + flag.lineIndex;
+        const d = DECISIONS.get(key) || { status: 'keep' };
+        const bani = CONTENT_FILES.size ? await readBani(flag) : null;
+        const cur = currentText(bani, flag.lineIndex);
+        const name = baniName(bani, flag);
+
+        const statusRow = el('div', 'row', [
+          statusBtn('keep', '✓ Keep as-is', d.status === 'keep'),
+          statusBtn('fixed', '✎ Fix text', d.status === 'fixed'),
+          statusBtn('reject', '✗ Reject', d.status === 'reject'),
+          el('span', 'muted grow', 'line ' + (flag.lineIndex + 1) + (flag.at ? ' · flagged ' + new Date(flag.at).toLocaleDateString() : '')),
+        ]);
+
+        const head = el('div', 'q', name);
+
+        const flagged = el('div', 'diff', [
+          el('div', 'muted', 'Flagged text'),
+          el('div', 'line', flag.text),
+        ]);
+        if (flag.note) flagged.append(el('div', fade('Note: ' + flag.note)));
+        if (cur !== null) {
+          flagged.append(el('div', fade(cur === flag.text ? 'Current text matches.' : 'Current text differs — a later edit may have shifted or fixed this already.')));
+          flagged.append(el('div', 'muted', 'Current text'));
+          flagged.append(el('div', 'line', cur));
+        } else {
+          flagged.append(el('div', fade('Content not loaded — fixes will still be recorded in the decision log.')));
+        }
+
+        const card = el('div', 'card', [statusRow, head, flagged]);
+        card.dataset.key = key;
+
+        if (d.status === 'fixed') {
+          const ta = el('textarea');
+          ta.value = typeof d.text === 'string' ? d.text : (cur !== null ? cur : flag.text);
+          ta.addEventListener('input', () => {
+            d.text = ta.value;
+            DECISIONS.set(key, d);
+          });
+          card.append(el('div', 'muted', 'Corrected text'), ta);
+        }
+        if (d.status === 'reject') {
+          const inp = el('input');
+          inp.setAttribute('type', 'text');
+          inp.value = d.note || '';
+          inp.placeholder = 'Reason for rejecting (optional)';
+          inp.addEventListener('input', () => {
+            d.note = inp.value;
+            DECISIONS.set(key, d);
+          });
+          card.append(el('div', 'muted', 'Reason'), inp);
+        }
+        return card;
+      }
+
+      function statusBtn(status, label, on) {
+        return el('button', on ? 'on' : '', label);
+      }
+
+      function el(tag, cls, text) {
+        const n = document.createElement(tag);
+        if (cls) n.className = cls;
+        if (typeof text === 'string') n.textContent = text;
+        return n;
+      }
+      function panel(text) {
+        return el('div', 'card muted', text);
+      }
+      function fade(text) {
+        return el('div', 'muted', text);
+      }
+
+      // Decide buttons change status; the rest of the card re-renders so the
+      // fix textarea / reject reason only appear for that status.
+      $('list').addEventListener('click', (e) => {
+        const btn = e.target.closest('button');
+        if (!btn) return;
+        const card = btn.closest('.card');
+        const key = card && card.dataset.key;
+        if (!key) return;
+        let status = null;
+        if (btn.textContent.startsWith('✓')) status = 'keep';
+        else if (btn.textContent.startsWith('✎')) status = 'fixed';
+        else if (btn.textContent.startsWith('✗')) status = 'reject';
+        if (status === null) return;
+        const [slug, li] = key.split(':');
+        setStatus(slug, Number(li), status, true);
+      });
+
+      function downloadJSON(filename, obj) {
+        const url = URL.createObjectURL(new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' }));
+        const a = el('a', '', filename + '.json');
+        a.href = url;
+        document.body.append(a);
+        a.style.display = 'none';
+        a.click();
+        setTimeout(() => {
+          a.remove();
+          URL.revokeObjectURL(url);
+        }, 500);
+      }
+
+      const nextVersion = (bani) => (bani.history || []).reduce((m, h) => Math.max(m, h.versionNo || 0), 0) + 1;
+      const today = () => new Date().toISOString().slice(0, 10);
+
+      function historyNote(names) {
+        const lines = names.map((n) => 'line ' + (n + 1)).join(', ');
+        return 'Resolved reader flag' + (names.length > 1 ? 's on ' : ' on ') + lines + ' via the review tool.';
+      }
+
+      $('downloadLog').addEventListener('click', () => {
+        const decisions = [];
+        for (const fl of FLAGS) {
+          const d = DECISIONS.get(fl.slug + ':' + fl.lineIndex);
+          decisions.push({
+            slug: fl.slug,
+            granthSlug: fl.granthSlug || '',
+            lineIndex: fl.lineIndex,
+            flaggedText: fl.text,
+            status: d ? d.status : 'keep',
+            text: d && d.text,
+            note: d && d.note,
+            reviewedAt: (d && d.reviewedAt) || new Date().toISOString(),
+          });
+        }
+        downloadJSON('review-log-' + today(), {
+          format: 'pothi-sahib-review/1',
+          reviewedAt: new Date().toISOString(),
+          decisions,
+        });
+      });
+
+      $('downloadFixed').addEventListener('click', async () => {
+        const fixes = [];
+        for (const fl of FLAGS) {
+          const d = DECISIONS.get(fl.slug + ':' + fl.lineIndex);
+          if (d && d.status === 'fixed' && typeof d.text === 'string' && d.text.trim() && d.text !== fl.text) {
+            fixes.push({ flag: fl, text: d.text.trim() });
+          }
+        }
+        if (!fixes.length) {
+          alert('No text changes to apply — fixes that keep the flagged text are "Keep as-is".');
+          return;
+        }
+        const bySlug = new Map();
+        for (const fx of fixes) {
+          if (!bySlug.has(fx.flag.slug)) bySlug.set(fx.flag.slug, []);
+          bySlug.get(fx.flag.slug).push(fx);
+        }
+        let downloads = 0;
+        for (const [slug, items] of bySlug) {
+          const bani = await readBani(items[0].flag);
+          if (!bani) {
+            const lines = items.map((i) => i.flag.lineIndex + 1).join(', ');
+            alert(`Content for "${slug}" wasn't loaded — line${items.length > 1 ? 's' : ''} ${lines} will be handled by the decision log instead.`);
+            continue;
+          }
+          if (bani.kind === 'single') {
+            const out = JSON.parse(JSON.stringify(bani.json));
+            const touched = [];
+            for (const i of items) {
+              if (!out.lines || !out.lines[i.flag.lineIndex]) continue;
+              out.lines[i.flag.lineIndex].t = i.text;
+              touched.push(i.flag.lineIndex);
+            }
+            if (touched.length) {
+              out.history = out.history || [];
+              out.history.push({ date: today(), versionNo: nextVersion(out), note: historyNote(touched) });
+              downloadJSON(slug, out);
+              downloads++;
+            }
+            continue;
+          }
+          // composite: apply into the right chunk(s), append history to _meta
+          const pages = window.PothiReview.buildPageIndex(bani.chunks);
+          const chunkByFile = new Map(bani.chunks.map((c) => [c.name, c]));
+          const touchedChunks = [];
+          for (const i of items) {
+            const loc = window.PothiReview.locInChunks(pages, i.flag.lineIndex);
+            if (!loc) continue;
+            const chunk = chunkByFile.get(loc.file);
+            if (chunk && chunk.json.lines && chunk.json.lines[loc.localIndex]) {
+              chunk.json.lines[loc.localIndex].t = i.text;
+              if (!touchedChunks.includes(loc.file)) touchedChunks.push(loc.file);
+            }
+          }
+          for (const fname of touchedChunks) {
+            downloadJSON(bani.granth + '/' + slug + '/' + fname.replace(/\.json$/, ''), chunkByFile.get(fname).json);
+            downloads++;
+          }
+          if (touchedChunks.length) {
+            const meta = JSON.parse(JSON.stringify(bani.meta));
+            meta.history = meta.history || [];
+            meta.history.push({ date: today(), versionNo: nextVersion(meta), note: historyNote(items.map((i) => i.flag.lineIndex)) });
+            downloadJSON(bani.granth + '/' + slug + '/_meta', meta);
+            downloads++;
+          }
+        }
+        if (downloads) {
+          alert(`Downloaded ${downloads} corrected file${downloads === 1 ? '' : 's'} — move them back into src/content/ (replacing the originals) and rebuild.`);
+        }
+      });
+    </script>
+  </body>
+</html>

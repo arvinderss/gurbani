@@ -557,7 +557,7 @@
 
   /** Wrap the pieces into the final single-file HTML document. */
   function assembleHtml({ headHtml, styleCss, bodyHtml, appJs, data, deferred = [] }) {
-    // </script> can never appear unescaped inside an inline <script> block
+    // <\/script> can never appear unescaped inside an inline <script> block
     const esc = (s) => s.replace(/<\/script/gi, '<\\/script');
     const dataJson = esc(JSON.stringify(data));
     const deferredBlocks = deferred
@@ -568,7 +568,7 @@
           d.slug +
           '" type="application/json">\n' +
           esc(JSON.stringify({ slug: d.slug, sections: d.sections, lines: d.lines })) +
-          '\n    </script>',
+          '\n    <\/script>',
       )
       .join('\n');
     return [
@@ -583,11 +583,11 @@
       bodyHtml.trim(),
       '    <script id="kosh-data" type="application/json">',
       dataJson,
-      '    </script>',
+      '    <\/script>',
       deferredBlocks,
       '    <script>',
       appJs,
-      '    </script>',
+      '    <\/script>',
       '  </body>',
       '</html>',
       '',

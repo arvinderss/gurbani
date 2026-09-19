@@ -5,6 +5,108 @@ Changes to specific Gurbani **text** are tracked per-Bani in each content
 file's own `history` array, and surfaced in-app under Settings →
 Changelog.
 
+## 2026-09-19 — Search refinements, resume marker, My Practice, reminders; Rehat Maryada
+
+- **Search now understands romanised Gurbani and can be scoped to one
+  Granth.** A phonetic map (waheguru → ਵਾਹਿਗੁਰੂ, sukhmani → ਸੁਖਮਨੀ, …)
+  expands the query before matching, so ASCII typing finds Gurmukhi text;
+  when a Latin-only query finds nothing, a "Phonetic matches" section
+  re-runs the search in romanised form (noting `Typed "…" — matching
+  "…"`). A persisted Granth scope dropdown on Home filters both the Bani
+  list and full-text search to one Granth.
+- **"You left off here" marker**: the reader now marks the line where a
+  resumed Bani continues (shown when continuing an existing read, not on a
+  fresh open or an explicit jump), so it's obvious where a session picks up.
+- **My Practice dashboard**: a new Home section built from `S.baniLog` —
+  current and longest streaks, completions, an active-day grid for the past
+  two weeks, per-Bani completion ranking (top 8) and milestone chips.
+- **Nitnem reminders without any permission** (no OS notification access):
+  Settings → Reminders lets you schedule the Nitnem-morning five-Banian
+  read or a single Bani, daily or on chosen weekdays, at a chosen time.
+  While the app is open it fires a dialog once per scheduled day; nothing
+  ever leaves the device.
+- **Rehat Maryada added.** A new "ਰਹਿਤ ਮਰਯਾਦਾ · Rehat Maryada" collection
+  carries the English Sikh Rehat Maryada (SGPC Dharam Parchar Committee;
+  English ed. 1997) as one Bani organised by its thirteen chapters, 331
+  lines / 9,901 words. Marked `PROVISIONAL` pending line-by-line comparison
+  with the printed booklet. Dist is now 32 Banian / 138,063 lines / ~14.5MB.
+- **Waheguru (Ik Onkar) emblem** replaces the open-book mark everywhere:
+  the in-app bar and Home hero, the share-card header, the browser favicon
+  and the Android launcher icons (`tools/make-favicon.js` now syncs the
+  favicon from `assets/waheguru.png`; the old `assets/logo.svg` is gone).
+
+## 2026-09-19 — Security review and hardening
+
+A full pass over the app and its tooling's security posture. Findings
+confirmed as already correct, plus the gaps found and closed:
+
+- **Already correct** — the app is fully offline (zero network calls, no
+  `INTERNET` permission), keeps all state in one `localStorage` key,
+  renders every line via `textContent` (never `innerHTML`), escapes
+  `</script` at build time, and ships a strict CSP in the HTML `<head>`.
+- **Android backups off** (`android/app/.../AndroidManifest.xml`): set
+  `android:allowBackup="false"` (and `fullBackupContent="false"`) — reader
+  flags, notes and reading positions are private to the app and no longer
+  ride along in OS/ADB backups.
+- **No JS alert()/confirm() left** (`src/app/app.js`): a bare WebView has
+  no WebChromeClient, so native `alert()`/`confirm()` are no-ops on
+  Android. All five call sites (reset-settings confirm, flag/share
+  clipboard fallbacks, backup-restore results) now use the app's own
+  `<dialog>` helpers (`dialogBox` / `confirmBox`), so every message
+  renders on every platform.
+- **Hosted copy sends security headers**: new `_headers`, copied into the
+  Pages build by `deploy-pages.yml`, sets `Content-Security-Policy` with
+  `frame-ancestors 'none'`, `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: no-referrer`, `Cross-Origin-Opener-Policy: same-origin`
+  and a restrictive `Permissions-Policy`.
+- **Backup restore hardened** (`sanitizeBackup()` in `src/app/app.js`):
+  a backup is validated per-item before it touches state — bookmarks must
+  be `{at: number, text: string}` with text bounded (≤ 80 chars) and a
+  5000-item cap; flags must match `{slug, lineIndex, text, note, at}` with
+  text/note length caps and a 2000-item cap. Malformed or hostile items
+  are dropped or coerced to sane values instead of being restored.
+
+## 2026-09-19 — Reading tools: Go-to-Ang, ranked search, My Bookmarks
+
+- **Go-to-Ang**: type a number in the Home search box and jump straight to
+  that Ang of Sri Guru Granth Sahib Ji (or the Dasam Granth) — numbered
+  `.nav-chip` shortcuts appear above the results, and the reader shows which
+  Ang it's on. `angToFirstIndex` maps the RLE ang index to the first line
+  of each page.
+- **Ranked full-text search**: results sort by (1) exact whole-line match,
+  (2) exact phrase / first-letters match, (3) substring, (4) any
+  word-token match, broken by SGGS → Dasam → Panthic → other order, then
+  Ang, then line. Every result shows the Ang it came from.
+- **My Bookmarks on Home**: a section listing every bookmarked line
+  (newest first, capped at 200) with remove and jump-straight-back-into-
+  the-reader buttons. Uses the same jump as Continue Reading, so it works
+  for the long deferred Granths too.
+
+## 2026-09-19 — Reader-flag review workflow; manifest editing; in-app changelog
+
+- **App → tool handoff**: Settings → My Flags gained "📤 Export for
+  review", producing `pothi-sahib-flags.json` (each flag with its captured
+  line text, note, slug and Granth). The empty state also says where flags
+  go.
+- **New `tools/review.html`** (zero install, like the other tools):
+  imports a flags file and, optionally, the `src/content` folder and an
+  earlier decision log to resume. Each flagged line shows both the flagged
+  text and the current source text (warning when a later edit shifted
+  them), and is resolved as **Keep as-is / ✎ Fix / ✗ Reject**. It downloads
+  a durable `review-log-<date>.json`, and when the content folder was
+  loaded, the corrected Bani/chunk `.json` files with a new `history`
+  entry appended — so a fix lands in the app's Settings → Changelog on the
+  next build. Its pure flag→chunk mapping is exposed as `PothiReview` and
+  covered by the tool-verify harness.
+- **Manifest editor**: `tools/editor.html` gained a Manifest mode — pick
+  the compiled Bani that fills a Granth of the complete scriptures (with a
+  warning if that Bani is already used elsewhere in the manifest), reorder
+  Granths, and save a manifest.json that is validated by the real build
+  logic (`PothiBuild.validateManifest`) before it downloads.
+- **In-app changelog**: Settings → Changelog now leads with an "App —
+  recent changes" section (from `APP_CHANGES` in app.js) documenting
+  app-level updates, above the existing per-Bani history.
+
 ## 2026-09-19 — Android install package, new brand emblem, hosted copy
 
 - **Android app** (`android/`): the built single file ships as an offline
@@ -13,11 +115,10 @@ Changelog.
   publishes it to the `apk` GitHub Release, stable across updates.
 - **Hosted copy**: a `deploy-pages.yml` workflow rebuilds `dist/` on every
   push and publishes it at https://arvinderss.github.io/gurbani/.
-- **New logo**: radiant emblem (halo, glow, rays, layered 3D open book with
-  gilded page block, gem bookmark, sparkles) on a fully transparent
-  background. Source of truth is `assets/logo.svg`, shared by the in-app
-  mark, the browser favicon (synced via `tools/make-favicon.js`), and the
-  Android launcher icons.
+- **New logo**: the Waheguru (Ik Onkar) emblem from `assets/waheguru.png`
+  on a transparent background. Source of truth is that PNG, shared by the
+  in-app mark (256p render, inlined as a data URI), the browser favicon
+  (synced via `tools/make-favicon.js`), and the Android launcher icons.
 - CSP now allows `media-src data: blob:` so the keep-awake fallback video
   plays inside the WebView APK (which has no Screen Wake Lock API).
 

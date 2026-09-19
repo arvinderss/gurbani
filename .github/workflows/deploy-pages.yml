@@ -32,7 +32,7 @@ jobs:
       # The reader is one self-contained HTML file, so the site publishes
       # exactly that file as the landing page and nothing else.
       - name: Prepare site root
-        run: mkdir -p _site && cp dist/pothi-sahib.html _site/index.html
+        run: mkdir -p _site && cp dist/pothi-sahib.html _site/index.html && cp _headers _site/_headers
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

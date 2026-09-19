@@ -26,7 +26,14 @@ const path = require('path');
 const DIR = __dirname;
 const lib = fs.readFileSync(path.join(DIR, 'build-lib.js'), 'utf8');
 const START = '<!-- build-lib.js inlined below - source of truth is tools/build-lib.js; regenerate with `node tools/inline-build-lib.js` -->';
-const scriptBlock = `${START}\n    <script>\n${lib}\n    </script>`;
+// build-lib.js contains the literal text "</script>" (in a comment about
+// escaping output, and in assembleHtml's string literals). Inside our own
+// <script> block the HTML tokenizer would terminate the element at a raw
+// "</script>", silently truncating the tool's logic - so escape it exactly
+// like assembleHtml escapes the app's data (a \"<\/script\" is still just
+// "</script>" to the JS engine, but is inert to the HTML parser).
+const escHtml = (s) => s.replace(/<\/script/gi, '<\\/script');
+const scriptBlock = `${START}\n    <script>\n${escHtml(lib)}\n    </script>`;
 
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 // First run: the plain external tag. Re-run: our marker through to a bare

@@ -5,6 +5,25 @@ Changes to specific Gurbani **text** are tracked per-Bani in each content
 file's own `history` array, and surfaced in-app under Settings →
 Changelog.
 
+## 2026-09-19 — Fix corrupted favicon (garbled text on Android)
+
+- The browser-tab favicon was shipped as raw PNG bytes mangled into a
+  ``base64`` attribute (ImageMagick's stdout was read as a *string*, so every
+  non-UTF-8 byte became a ``�`` replacement char, and the ``href="base64,…"``
+  quoted attribute let a stray `"`/`>` byte break out of the tag — browsers
+  then rendered that blob as garbled text at the very top of the screen and
+  the unbounded garbage line inflated the page width, pushing the reader's
+  size/speed controls out of the visible area). The corrupted file grew on
+  every re-run because ``indexOf('"')`` stopped at the stray quote.
+- `tools/make-favicon.js` now requests raw bytes from ImageMagick
+  (``encoding: 'buffer'``) and regenerates the whole ``<head>`` from a fixed
+  template, so stale/corrupt bytes can never survive a re-run. Ran it,
+  rebuilt dist: the shipped favicon is again a valid pure-ASCII base64 96×96
+  PNG (28,432 chars), and the file contains no ``�`` anywhere.
+- Regression guard: the share-smoke and script-integrity harnesses now fail
+  if the favicon isn't pure-ASCII base64 that decodes to a PNG, or if any
+  ``�`` reaches the shipped file.
+
 ## 2026-09-19 — Search refinements, resume marker, My Practice, reminders; Rehat Maryada
 
 - **Search now understands romanised Gurbani and can be scoped to one

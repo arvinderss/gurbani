@@ -108,6 +108,13 @@ const DEFAULTS = {
   reminders: [], // { id, label, mode: 'nitnem-morning'|'bani', slug?, time:'HH:MM', days:'daily'|[0-6] }; see § reminders
   remindersFired: {}, // 'id_YYYYMMDD' -> true, so a reminder surfaces once per day at most
 };
+// Autoscroll speed lives in words per minute but is surfaced to the user as
+// 0-100 units where 100 units = 400 wpm (and 0 wpm = 0 units).
+const WPM_MIN = 0;
+const WPM_MAX = 400;
+const WPM_STEP = 25;
+const wpmToUnits = (wpm) =>
+  Math.round(Math.max(WPM_MIN, Math.min(WPM_MAX, wpm)) / 4);
 // Installed-on-device font stacks. The first name is what the reader tries;
 // the rest are fallbacks so every choice visibly differs even where the
 // named Gurmukhi fonts aren't installed (Gurmukhi glyphs then fall back to
@@ -1506,36 +1513,56 @@ function buildSettings(view, rerender) {
   ]);
 
   // ── ⚡ SPEED & SCROLLING ──────────────────────────────
+  const speedSliderRow = (() => {
+    const out = el('span', {
+      class: 'small muted',
+      style: 'white-space:nowrap',
+      text: wpmToUnits(S.speed) + 'u · ' + S.speed + ' wpm',
+    });
+    const slider = el('input', {
+      type: 'range',
+      min: 0,
+      max: 100,
+      step: 1,
+      value: wpmToUnits(S.speed),
+      'aria-label': 'Reading speed in units of 100, where 100 is 400 wpm and 0 is stopped',
+      style: 'flex:1;min-width:0',
+      oninput: (e) => {
+        S.speed = Math.round(Number(e.target.value) * 4);
+        out.textContent = wpmToUnits(S.speed) + 'u · ' + S.speed + ' wpm';
+        save();
+      },
+    });
+    return el('div', { class: 'row', style: 'gap:.5rem;align-items:center;flex:1;min-width:0' }, [slider, out]);
+  })();
   const speedScroll = el('div', { class: 'card' }, [
     el('p', {
       class: 'small muted',
       style: 'margin:.2rem 0 .5rem',
-      text: 'Speed is in words per minute — it auto-adjusts for font size so you always read the same number of words per minute, not pixels.',
+      text: 'Speed is in words per minute — it auto-adjusts for font size so you always read the same number of words per minute, not pixels. Speed is shown in units where 400 wpm = 100 and 0 wpm = 0.',
     }),
     srow(
       '⚡',
       'Reading speed',
-      el('div', { class: 'row' }, [
-        el(
-          'div',
-          { class: 'wpm-presets' },
-          [
-            [40, 'Meditative'],
-            [70, 'Slow'],
-            [120, 'Normal'],
-            [180, 'Fast'],
-          ].map(([v, t]) =>
-            el('button', {
-              text: t + ' ' + v,
-              class: S.speed === v ? 'primary' : '',
-              onclick: () => {
-                S.speed = v;
-                rerender();
-              },
-            }),
-          ),
-        ),
-        num(() => S.speed, (v) => (S.speed = v), 10, 20, 300, (v) => v + ' wpm'),
+      el('div', { style: 'display:grid;gap:.55rem' }, [
+        speedSliderRow,
+        el('div', { class: 'wpm-presets' }, [
+          [40, 'Meditative'],
+          [70, 'Slow'],
+          [120, 'Normal'],
+          [180, 'Fast'],
+          [400, 'Maximum'],
+        ].map(([v, t]) =>
+          el('button', {
+            text: t + ' ' + v,
+            class: S.speed === v ? 'primary' : '',
+            onclick: () => {
+              S.speed = v;
+              rerender();
+            },
+          }),
+        )),
+        num(() => S.speed, (v) => (S.speed = v), WPM_STEP, WPM_MIN, WPM_MAX, (v) => v + ' wpm'),
       ]),
     ),
     toggle('Auto-start on open', '▶', 'autoScrollOnOpen', 'Start auto-scroll immediately when a Bani opens or resumes'),
@@ -3004,11 +3031,17 @@ function readerBar() {
   barVisible = true; // reset when a new bar is created
 
   // ── speed badge ────────────────────────────────────────────
-  const fmtWPM = (v) => v + ' wpm';
-  const wpmBadge = el('span', { class: 'wpm-badge compact-hide', text: fmtWPM(S.speed), 'aria-live': 'polite', 'aria-label': S.speed + ' words per minute' });
+  const fmtWPM = (v) => wpmToUnits(v) + 'u';
+  const wpmBadge = el('span', {
+    class: 'wpm-badge compact-hide',
+    text: fmtWPM(S.speed),
+    'aria-live': 'polite',
+    'aria-label': wpmToUnits(S.speed) + ' units · ' + S.speed + ' words per minute',
+  });
   const updateWPM = (v) => {
+    v = Math.max(WPM_MIN, Math.min(WPM_MAX, v));
     wpmBadge.textContent = fmtWPM(v);
-    wpmBadge.setAttribute('aria-label', v + ' words per minute');
+    wpmBadge.setAttribute('aria-label', wpmToUnits(v) + ' units · ' + v + ' words per minute');
     S.speed = v;
     save();
   };
@@ -3042,9 +3075,9 @@ function readerBar() {
     // push controls toward centre
     el('div', { class: 'bar-grow' }),
     // speed group: − ▶ + wpm
-    el('button', { class: 'quiet hit', text: '−', 'aria-label': 'Decrease speed (−10 wpm)', onclick: () => updateWPM(Math.max(20, S.speed - 10)) }),
+    el('button', { class: 'quiet hit', text: '−', 'aria-label': 'Decrease speed (−25 wpm)', onclick: () => updateWPM(S.speed - WPM_STEP) }),
     play,
-    el('button', { class: 'quiet hit', text: '+', 'aria-label': 'Increase speed (+10 wpm)', onclick: () => updateWPM(Math.min(300, S.speed + 10)) }),
+    el('button', { class: 'quiet hit', text: '+', 'aria-label': 'Increase speed (+25 wpm)', onclick: () => updateWPM(S.speed + WPM_STEP) }),
     wpmBadge,
     // separator
     el('div', { class: 'bar-sep' }),
@@ -3066,7 +3099,7 @@ function readerBar() {
         if (document.fullscreenElement || document.webkitFullscreenElement) {
           (document.exitFullscreen || document.webkitExitFullscreen).call(document);
         } else {
-          (fsEl.requestFullscreen || fsEl.webkitRequestFullscreen)?.call(fsEl);
+          (fsEl.requestFullscreen || fsEl.webkitRequestFullscreen)?.call(fsEl)?.catch?.(() => {});
         }
       },
     }),
@@ -3392,15 +3425,21 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     toggleScroll();
   } else if (e.key === '+' || e.key === '=' || e.key === 'ArrowRight') {
-    S.speed = Math.min(300, S.speed + 10);
+    S.speed = Math.min(WPM_MAX, S.speed + WPM_STEP);
     save();
-    document.querySelectorAll('.wpm-badge').forEach((b) => (b.textContent = S.speed + ' wpm'));
-    announce(S.speed + ' words per minute');
+    document.querySelectorAll('.wpm-badge').forEach((b) => {
+      b.textContent = wpmToUnits(S.speed) + 'u';
+      b.setAttribute('aria-label', wpmToUnits(S.speed) + ' units · ' + S.speed + ' words per minute');
+    });
+    announce(wpmToUnits(S.speed) + ' units · ' + S.speed + ' words per minute');
   } else if (e.key === '-' || e.key === 'ArrowLeft') {
-    S.speed = Math.max(20, S.speed - 10);
+    S.speed = Math.max(WPM_MIN, S.speed - WPM_STEP);
     save();
-    document.querySelectorAll('.wpm-badge').forEach((b) => (b.textContent = S.speed + ' wpm'));
-    announce(S.speed + ' words per minute');
+    document.querySelectorAll('.wpm-badge').forEach((b) => {
+      b.textContent = wpmToUnits(S.speed) + 'u';
+      b.setAttribute('aria-label', wpmToUnits(S.speed) + ' units · ' + S.speed + ' words per minute');
+    });
+    announce(wpmToUnits(S.speed) + ' units · ' + S.speed + ' words per minute');
   } else if (e.key.toLowerCase() === 'h') {
     toggleBarVisibility();
   } else if (e.key === 'Escape') {
@@ -3420,8 +3459,8 @@ document.addEventListener('keydown', (e) => {
 function showShortcuts() {
   const rows = [
     ['Space', 'Play / pause auto-scroll'],
-    ['→ / +', 'Speed up (+10 wpm)'],
-    ['← / −', 'Slow down (−10 wpm)'],
+    ['→ / +', 'Speed up (+25 wpm)'],
+    ['← / −', 'Slow down (−25 wpm)'],
     ['H', 'Hide / show controls'],
     ['L', 'Toggle Larivaar'],
     ['F', 'Flag current line for review'],

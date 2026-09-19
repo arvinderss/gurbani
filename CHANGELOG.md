@@ -5,6 +5,22 @@ Changes to specific Gurbani **text** are tracked per-Bani in each content
 file's own `history` array, and surfaced in-app under Settings →
 Changelog.
 
+## 2026-09-19 — Fullscreen fix in the Android app; speed expressed as 0–100 units
+
+- **Fullscreen button now works inside the APK.** The shell had no
+  `WebChromeClient`, so the reader's Fullscreen API button
+  (`requestFullscreen`) was silently ignored by the WebView. `MainActivity`
+  now implements `onShowCustomView`/`onHideCustomView` (immersive
+  system-UI flags while fullscreen, back button exits it) so the ⛶ button
+  genuinely fills the screen. In desktop browsers the native Fullscreen API
+  path is unchanged.
+- **Speed reworked onto a 0–100 unit scale where 400 wpm = 100 and 0 wpm =
+  0.** The reader-bar `−`/`+` buttons and the `←`/`→`/`+`/`−` keys now step
+  by **25 wpm** and the ceiling is **400 wpm** (was ±10, max 300). The
+  per-Bani badge shows the unit value (e.g. 120 wpm → `30u`), Settings
+  gained a 0–100 slider plus a "Maximum 400" preset, and all aria-labels,
+  help text and announcements were updated to match.
+
 ## 2026-09-19 — Fix corrupted favicon (garbled text on Android)
 
 - The browser-tab favicon was shipped as raw PNG bytes mangled into a
